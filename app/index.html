@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="manifest" href="/app/manifest.json" />
+  <meta name="theme-color" content="#0B0B0C" />
+  <link rel="stylesheet" href="/app/styles.css" />
+  <title>Lift Coach</title>
+</head>
+<body>
+  <header class="top">
+    <div class="title">Lift Coach</div>
+    <div id="netBadge" class="badge">ONLINE</div>
+  </header>
+
+  <main>
+    <section class="card">
+      <div class="row">
+        <button id="syncBtn" class="btn">未送信を送信</button>
+        <button id="pingBtn" class="btn">API Ping</button>
+      </div>
+      <div id="queueInfo" class="small"></div>
+      <div id="pingInfo" class="small"></div>
+    </section>
+
+    <section class="card">
+      <div class="small">部位フィルタ</div>
+      <select id="bodypartSel">
+        <option value="">（選択）</option>
+        <option>肩前</option><option>肩中</option><option>肩後</option>
+        <option>2頭</option><option>3頭</option>
+        <option>胸上部</option><option>胸中部</option><option>胸下部</option>
+        <option>広背筋</option>
+        <option>僧帽筋上部</option><option>僧帽筋中部</option><option>僧帽筋下部</option>
+        <option>4頭</option><option>ハム</option><option>お尻</option><option>カーフ</option>
+      </select>
+
+      <div class="small" style="margin-top:10px;">検索（インクリメンタル）</div>
+      <input id="searchInput" placeholder="例：レイズ / ケーブル / プレス" />
+
+      <div id="exList" class="list"></div>
+      <div id="exInfo" class="small"></div>
+    </section>
+
+    <section class="card">
+      <button id="demoSaveBtn" class="btn primary">（デモ）セット保存</button>
+      <div class="small">まずは sets_log に1行入るかを確認します</div>
+    </section>
+  </main>
+
+  <script src="/app/app.js"></script>
+</body>
+</html>
