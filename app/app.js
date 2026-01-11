@@ -61,6 +61,8 @@ async function flushQueue() {
 }
 
 let cachedExercises = [];
+let selectedExercise = null;
+let currentSetNo = 1;
 
 async function loadExercises(bodypart_ui) {
   if (!bodypart_ui) {
@@ -90,19 +92,35 @@ function filterExercises(q) {
 function renderExerciseList(items) {
   const el = document.getElementById("exList");
   el.innerHTML = "";
+
   items.slice(0, 30).forEach(x => {
     const div = document.createElement("div");
     div.className = "item";
     div.textContent = `${x.exercise_name}（${x.equipment_cat} / ${x.range_type}）`;
+
+    div.addEventListener("click", () => {
+      selectedExercise = x;
+      currentSetNo = 1;
+
+      document.getElementById("selectedName").textContent = x.exercise_name;
+      document.getElementById("weightInput").value = "";
+      document.getElementById("repsInput").value = "";
+      document.getElementById("rirInput").value = "";
+
+      document.getElementById("selectedCard").style.display = "block";
+    });
+
     el.appendChild(div);
   });
+
   if (items.length > 30) {
     const more = document.createElement("div");
     more.className = "small";
-    more.textContent = `表示は30件まで（検索で絞ってください）`;
+    more.textContent = "表示は30件まで（検索で絞ってください）";
     el.appendChild(more);
   }
 }
+
 
 document.addEventListener("DOMContentLoaded", async () => {
   updateQueueUI();
@@ -160,7 +178,56 @@ document.addEventListener("DOMContentLoaded", async () => {
         notes: ""
       }
     };
+  // セット保存（本番）
+  document.getElementById("saveSetBtn").addEventListener("click", async () => {
+    if (!selectedExercise) return alert("種目を選択してください");
 
+    const weight = Number(document.getElementById("weightInput").value);
+    const reps = Number(document.getElementById("repsInput").value);
+    const rir = Number(document.getElementById("rirInput").value);
+
+    if (!weight || !reps) return alert("重量と回数を入力してください");
+
+    const payload = {
+      action: "append_set_log",
+      data: {
+        set_id: genSetId(),
+        timestamp: new Date().toISOString(),
+        user_id: "U001",
+        workout_id: "W-" + new Date().toISOString().slice(0, 10),
+        bodypart_ui: selectedExercise.bodypart_ui,
+        pattern: selectedExercise.pattern,
+        range_type: selectedExercise.range_type,
+        equipment_cat: selectedExercise.equipment_cat,
+        exercise_id: selectedExercise.exercise_id,
+        exercise_name: selectedExercise.exercise_name,
+
+        slot: "Main",          // まずは固定でOK（後でMain/Sub/Finishにする）
+        target_rep_min: 8,
+        target_rep_max: 12,
+
+        set_no: currentSetNo,
+        weight,
+        reps,
+        rir,
+        mode: "Normal",
+        notes: ""
+      }
+    };
+
+    // オフラインも含めて保存
+    try {
+      await postToGAS(payload);
+      alert(`セット${currentSetNo} 保存しました`);
+    } catch (e) {
+      enqueue(payload);
+      alert("通信失敗：未送信に保存しました");
+    } finally {
+      currentSetNo += 1;
+    }
+  });
+
+    
     if (!navigator.onLine) {
       enqueue(payload);
       alert("OFFLINE：未送信に保存しました");
