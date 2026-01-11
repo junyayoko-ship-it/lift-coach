@@ -1,5 +1,5 @@
 // ★ ここにGASのWebアプリURLを貼る
-const API_URL = "https://script.google.com/macros/s/XXXXXXXX/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbwoEqusw52NrIIbNe14XqFs5GXgs_QH6jSTmELemtRqXa6z5-stcsHImVIrm2iIg2bn/exec";
 
 // オフラインキュー（MVPはlocalStorage）
 const QUEUE_KEY = "liftcoach_offline_queue_v1";
@@ -109,7 +109,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   updateNetBadge();
 
   if ("serviceWorker" in navigator) {
-    try { await navigator.serviceWorker.register("/app/service-worker.js"); } catch {}
+    try { await navigator.serviceWorker.register("/service-worker.js"); } catch {}
   }
 
   window.addEventListener("online", () => { updateNetBadge(); flushQueue(); });
