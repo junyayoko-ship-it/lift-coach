@@ -7,6 +7,10 @@ const QUEUE_KEY = "liftcoach_offline_queue_v1";
 function genSetId() {
   return "S-" + Date.now() + "-" + Math.random().toString(16).slice(2);
 }
+function makeProgressKey(ex) {
+  // A案：枠（部位×pattern×range×equipment）
+  return `${ex.bodypart_ui}|${ex.pattern}|${ex.range_type}|${ex.equipment_cat}`;
+}
 
 function loadQueue() {
   try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || "[]"); } catch { return []; }
@@ -39,6 +43,14 @@ async function postToGAS(payload) {
   try { json = JSON.parse(text); } catch {}
   if (!res.ok || json.ok === false) throw new Error(json.error || `HTTP ${res.status}`);
   return json;
+}
+
+async function getLastByProgressKey(progress_key, limit = 5) {
+  const res = await postToGAS({
+    action: "get_last_by_progress_key",
+    query: { progress_key, limit }
+  });
+  return res.items || [];
 }
 
 async function flushQueue() {
@@ -98,17 +110,36 @@ function renderExerciseList(items) {
     div.className = "item";
     div.textContent = `${x.exercise_name}（${x.equipment_cat} / ${x.range_type}）`;
 
-    div.addEventListener("click", () => {
-      selectedExercise = x;
-      currentSetNo = 1;
+    div.addEventListener("click", async () => {
+  selectedExercise = x;
+  currentSetNo = 1;
 
-      document.getElementById("selectedName").textContent = x.exercise_name;
-      document.getElementById("weightInput").value = "";
-      document.getElementById("repsInput").value = "";
-      document.getElementById("rirInput").value = "";
+  document.getElementById("selectedName").textContent = x.exercise_name;
+  document.getElementById("selectedCard").style.display = "block";
 
-      document.getElementById("selectedCard").style.display = "block";
-    });
+  // いったんクリア表示（ローディングの代わり）
+  document.getElementById("weightInput").value = "";
+  document.getElementById("repsInput").value = "";
+  document.getElementById("rirInput").value = "";
+
+  // 前回値プリセット
+  try {
+    const progress_key = makeProgressKey(x);
+    const items = await getLastByProgressKey(progress_key, 5);
+
+    // 直近1件を採用（まずはシンプル）
+    if (items.length > 0) {
+      const last = items[0];
+      document.getElementById("weightInput").value = last.weight || "";
+      document.getElementById("repsInput").value = last.reps || "";
+      document.getElementById("rirInput").value = (last.rir === "" ? "" : last.rir);
+    }
+  } catch (e) {
+    // 取れなくても入力はできるので握りつぶし
+    console.warn("prefill failed", e);
+  }
+});
+
 
     el.appendChild(div);
   });
