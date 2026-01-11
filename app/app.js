@@ -109,7 +109,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   updateNetBadge();
 
   if ("serviceWorker" in navigator) {
-    try { await navigator.serviceWorker.register("/service-worker.js"); } catch {}
+    try { await navigator.serviceWorker.register("./service-worker.js"); } catch {}
   }
 
   window.addEventListener("online", () => { updateNetBadge(); flushQueue(); });
