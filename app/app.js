@@ -12,6 +12,35 @@ function makeProgressKey(ex) {
   return `${ex.bodypart_ui}|${ex.pattern}|${ex.range_type}|${ex.equipment_cat}`;
 }
 
+// progress_key 内で「最も基準に適したセット」を選ぶ
+function pickBestSet(items, targetMin = 8, targetMax = 12) {
+  if (!items || items.length === 0) return null;
+
+  // ① 目標レンジ内のセット
+  const inRange = items.filter(x =>
+    x.reps >= targetMin && x.reps <= targetMax
+  );
+
+  if (inRange.length > 0) {
+    // 重量が最大のものを採用
+    return inRange.reduce((a, b) => (b.weight > a.weight ? b : a));
+  }
+
+  // ② レンジ外なら、レンジに最も近いセット
+  return items.reduce((a, b) => {
+    const da = Math.min(
+      Math.abs(a.reps - targetMin),
+      Math.abs(a.reps - targetMax)
+    );
+    const db = Math.min(
+      Math.abs(b.reps - targetMin),
+      Math.abs(b.reps - targetMax)
+    );
+    return db < da ? b : a;
+  });
+}
+
+
 function loadQueue() {
   try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || "[]"); } catch { return []; }
 }
@@ -129,7 +158,7 @@ function renderExerciseList(items) {
 
     // 直近1件を採用（まずはシンプル）
     if (items.length > 0) {
-      const last = items[0];
+      const last = pickBestSet(items, 8, 12);
       document.getElementById("weightInput").value = last.weight || "";
       document.getElementById("repsInput").value = last.reps || "";
       document.getElementById("rirInput").value = (last.rir === "" ? "" : last.rir);
