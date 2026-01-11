@@ -1,11 +1,11 @@
 const CACHE_NAME = "liftcoach-v1";
 const APP_SHELL = [
-  "/app/index.html",
-  "/app/styles.css",
-  "/app/app.js",
-  "/app/manifest.json",
-  "/app/icons/icon-192.png",
-  "/app/icons/icon-512.png"
+  "./index.html",
+  "./styles.css",
+  "./app.js",
+  "./manifest.json",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png"
 ];
 
 self.addEventListener("install", (event) => {
