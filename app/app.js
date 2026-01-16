@@ -238,15 +238,36 @@ document.addEventListener("DOMContentLoaded", async () => {
         notes: ""
       }
     };
+    if (!navigator.onLine) {
+      enqueue(payload);
+      alert("OFFLINE：未送信に保存しました");
+      return;
+    }
+
+    try {
+      await postToGAS(payload);
+      alert("送信完了（sets_logに追加）");
+    } catch (e) {
+      enqueue(payload);
+      alert("通信失敗：未送信に保存しました");
+    }
+  });
+
   // セット保存（本番）
   document.getElementById("saveSetBtn").addEventListener("click", async () => {
     if (!selectedExercise) return alert("種目を選択してください");
 
-    const weight = Number(document.getElementById("weightInput").value);
-    const reps = Number(document.getElementById("repsInput").value);
-    const rir = Number(document.getElementById("rirInput").value);
+    const weightRaw = document.getElementById("weightInput").value;
+    const repsRaw = document.getElementById("repsInput").value;
+    const rirRaw = document.getElementById("rirInput").value;
 
-    if (!weight || !reps) return alert("重量と回数を入力してください");
+    const weight = Number(weightRaw);
+    const reps = Number(repsRaw);
+    const rir = rirRaw === "" ? "" : Number(rirRaw);
+
+    if (!Number.isFinite(weight) || weight <= 0 || !Number.isFinite(reps) || reps <= 0) {
+      return alert("重量と回数を入力してください");
+    }
 
     const payload = {
       action: "append_set_log",
@@ -284,22 +305,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       alert("通信失敗：未送信に保存しました");
     } finally {
       currentSetNo += 1;
-    }
-  });
-
-    
-    if (!navigator.onLine) {
-      enqueue(payload);
-      alert("OFFLINE：未送信に保存しました");
-      return;
-    }
-
-    try {
-      await postToGAS(payload);
-      alert("送信完了（sets_logに追加）");
-    } catch (e) {
-      enqueue(payload);
-      alert("通信失敗：未送信に保存しました");
     }
   });
 });
