@@ -3,6 +3,9 @@ const STORE = {
   profile: "liftcoach_profile_v2",
   gyms: "liftcoach_gyms_v2",
   machines: "liftcoach_machines_v2",
+  customExercises: "liftcoach_custom_exercises_v2",
+  activeWorkout: "liftcoach_active_workout_v2",
+  completedWorkouts: "liftcoach_completed_workouts_v2",
   sets: "liftcoach_sets_v2",
   queue: "liftcoach_offline_queue_v2"
 };
@@ -45,10 +48,14 @@ let state = {
   profile: read(STORE.profile, null),
   gyms: read(STORE.gyms, []),
   machines: read(STORE.machines, []),
+  customExercises: read(STORE.customExercises, []),
+  activeWorkout: read(STORE.activeWorkout, null),
+  completedWorkouts: read(STORE.completedWorkouts, []),
   sets: read(STORE.sets, []),
   bodypart: "",
   exercise: null,
   machine: null,
+  executionVariant: "",
   editingSetId: null,
   lastSaved: null
 };
@@ -57,7 +64,14 @@ function persist() {
   write(STORE.profile, state.profile);
   write(STORE.gyms, state.gyms);
   write(STORE.machines, state.machines);
+  write(STORE.customExercises, state.customExercises);
+  write(STORE.activeWorkout, state.activeWorkout);
+  write(STORE.completedWorkouts, state.completedWorkouts);
   write(STORE.sets, state.sets);
+}
+
+function allExercises() {
+  return [...EXERCISES, ...state.customExercises];
 }
 
 function localDateKey(date = new Date()) {
@@ -71,7 +85,9 @@ function migrateSetHistory() {
   const workouts = new Map();
   state.sets.forEach((set) => {
     if (!set.workout_id) set.workout_id = `W-${localDateKey(new Date(set.timestamp))}`;
-    if (!set.comparison_key) set.comparison_key = `${set.exercise_id}|${set.equipment_variant_id || set.equipment_cat}`;
+    if (set.equipment_variant_id && !set.execution_variant) set.execution_variant = "標準（両手）";
+    const method = set.equipment_variant_id ? String(set.execution_variant || "標準").trim().toLowerCase() : "";
+    set.comparison_key = `${set.exercise_id}|${set.equipment_variant_id || set.equipment_cat}|${method}`;
     if (!workouts.has(set.workout_id)) workouts.set(set.workout_id, []);
     workouts.get(set.workout_id).push(set);
   });
@@ -108,15 +124,24 @@ function currentGym() {
 }
 
 function currentWorkoutId() {
-  return `W-${localDateKey()}`;
+  if (state.activeWorkout?.id && state.activeWorkout.date === localDateKey()) return state.activeWorkout.id;
+  const todaySets = state.sets.filter((set) => set.workout_id?.startsWith(`W-${localDateKey()}`) && !state.completedWorkouts.includes(set.workout_id));
+  if (todaySets.length && !state.activeWorkout) {
+    state.activeWorkout = { id: todaySets[0].workout_id, date: localDateKey(), started_at: todaySets[todaySets.length - 1].timestamp };
+  } else {
+    state.activeWorkout = { id: `W-${localDateKey()}-${Date.now()}`, date: localDateKey(), started_at: new Date().toISOString() };
+  }
+  persist();
+  return state.activeWorkout.id;
 }
 
-function comparisonKey(exercise, machineId = "") {
-  return `${exercise.exercise_id}|${machineId || exercise.equipment_cat}`;
+function comparisonKey(exercise, machineId = "", executionVariant = "") {
+  const method = machineId ? (executionVariant.trim().toLowerCase() || "標準") : "";
+  return `${exercise.exercise_id}|${machineId || exercise.equipment_cat}|${method}`;
 }
 
 function comparableSets(exercise, machineId = "") {
-  const key = comparisonKey(exercise, machineId);
+  const key = comparisonKey(exercise, machineId, state.executionVariant);
   return state.sets.filter((set) => set.comparison_key === key).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 }
 
@@ -205,7 +230,7 @@ function weeklyCounts() {
 
 function renderExercises() {
   const query = $("exerciseSearch").value.trim().toLowerCase();
-  const items = EXERCISES.filter((ex) => ex.bodypart_ui === state.bodypart && `${ex.exercise_name} ${ex.equipment_cat}`.toLowerCase().includes(query));
+  const items = allExercises().filter((ex) => ex.bodypart_ui === state.bodypart && `${ex.exercise_name} ${ex.equipment_cat}`.toLowerCase().includes(query));
   $("exerciseList").innerHTML = items.map((ex) => {
     const histories = state.sets.filter((set) => set.exercise_id === ex.exercise_id);
     const last = histories.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
@@ -221,6 +246,7 @@ function renderExercises() {
 function selectExercise(exercise) {
   state.exercise = exercise;
   state.machine = null;
+  state.executionVariant = "";
   if (exercise.equipment_cat === "Machine") {
     openMachineDialog(exercise);
   } else {
@@ -238,15 +264,26 @@ function openGymDialog() {
 
 function openMachineDialog(exercise) {
   const gym = currentGym();
-  $("machineDialogHelp").textContent = gym ? `${gym.name}で使う「${exercise.exercise_name}」を選択` : "先にジムを登録してください。";
-  const machines = gym ? state.machines.filter((machine) => machine.gym_id === gym.id && machine.exercise_id === exercise.exercise_id) : [];
+  $("machineDialogHelp").textContent = gym ? `${gym.name}で使う物理的なマシンを選択` : "先にジムを登録してください。";
+  const machines = gym ? state.machines.filter((machine) => machine.gym_id === gym.id) : [];
   $("machineList").innerHTML = machines.length ? machines.map((machine) => {
-    const last = comparableSets(exercise, machine.id)[0];
+    const last = state.sets.find((set) => set.exercise_id === exercise.exercise_id && set.equipment_variant_id === machine.id);
     return `<button type="button" class="select-row" data-machine="${machine.id}"><span><strong>${machine.name}</strong><small>${[machine.maker, machine.note].filter(Boolean).join(" ・ ") || "登録済み"}</small></span><span>${last ? `${last.weight}kg × ${last.reps}` : "初回"}</span></button>`;
   }).join("") : `<div class="empty-state">この種目のマシンは未登録です。</div>`;
   $("showNewMachineBtn").textContent = gym ? "＋ このマシンを初回登録" : "＋ ジムを先に登録";
   $("newMachineFields").hidden = true;
+  $("variationFields").hidden = true;
   $("machineDialog").showModal();
+}
+
+function showVariationFields(machine) {
+  state.machine = machine;
+  const variations = [...new Set(state.sets.filter((set) => set.exercise_id === state.exercise.exercise_id && set.equipment_variant_id === machine.id).map((set) => set.execution_variant).filter(Boolean))];
+  $("variationMachineName").textContent = `${machine.name} × ${state.exercise.exercise_name}`;
+  $("executionVariantList").innerHTML = ["標準（両手）", "ワンハンド", ...variations].filter((value, index, array) => array.indexOf(value) === index).map((value) => `<option value="${value}">`).join("");
+  $("executionVariantInput").value = variations[0] || "標準（両手）";
+  $("variationFields").hidden = false;
+  $("variationFields").scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 function openSetDialog() {
@@ -267,7 +304,7 @@ function renderSetSession() {
   const rec = current.length ? nextSetRecommendation(current[current.length - 1]) : recommendation(previousBest, exercise);
   $("setBodypart").textContent = `${exercise.bodypart_ui} ・ 今日${exerciseOrder}種目目`;
   $("setExerciseName").textContent = exercise.exercise_name;
-  $("setMachineName").textContent = state.machine ? `${currentGym()?.name} ・ ${state.machine.name}` : exercise.equipment_cat;
+  $("setMachineName").textContent = state.machine ? `${currentGym()?.name} ・ ${state.machine.name} ・ ${state.executionVariant}` : exercise.equipment_cat;
   const previousTotal = previous.reduce((sum, set) => sum + Number(set.reps), 0);
   const previousOrder = previous.length ? Number(previous[0].exercise_order || 0) : 0;
   const orderNote = previous.length && previousOrder && previousOrder !== exerciseOrder ? `<div class="condition-warning">前回は${previousOrder}種目目、今回は${exerciseOrder}種目目です。疲労条件が異なるため参考値として表示しています。</div>` : "";
@@ -311,7 +348,8 @@ function saveSet(event) {
     pattern: state.exercise.pattern, range_type: state.exercise.range_type, equipment_cat: state.exercise.equipment_cat,
     gym_id: currentGym()?.id || "", gym_name: currentGym()?.name || "",
     equipment_variant_id: state.machine?.id || "", equipment_variant: state.machine?.name || "",
-    comparison_key: comparisonKey(state.exercise, state.machine?.id),
+    execution_variant: state.executionVariant || "",
+    comparison_key: comparisonKey(state.exercise, state.machine?.id, state.executionVariant),
     weight, reps, rir: selectedRir ? Number(selectedRir.value) : "",
     pain_area: $("painFields").hidden ? "" : $("painArea").value.trim(),
     pain_score: $("painFields").hidden ? "" : Number($("painScore").value),
@@ -389,7 +427,39 @@ function renderHistory() {
 
 function renderSettings() {
   $("settingsName").value = state.profile?.name || ""; $("settingsGoal").value = state.profile?.goal || "hypertrophy";
-  $("machineLibrary").innerHTML = state.gyms.length ? state.gyms.map((gym) => `<div class="library-group"><strong>${gym.name}</strong>${state.machines.filter((machine) => machine.gym_id === gym.id).map((machine) => `<div><span>${machine.name}</span><small>${EXERCISES.find((ex) => ex.exercise_id === machine.exercise_id)?.exercise_name || ""}${machine.maker ? ` ・ ${machine.maker}` : ""}</small></div>`).join("") || `<small>マシン未登録</small>`}</div>`).join("") : `<div class="empty-state">ジムとマシンは、トレーニング画面から登録できます。</div>`;
+  $("machineLibrary").innerHTML = state.gyms.length ? state.gyms.map((gym) => `<div class="library-group"><strong>${gym.name}</strong>${state.machines.filter((machine) => machine.gym_id === gym.id).map((machine) => `<div><span>${machine.name}</span><small>${machine.maker || "登録済み"}</small></div>`).join("") || `<small>マシン未登録</small>`}</div>`).join("") : `<div class="empty-state">ジムとマシンは、トレーニング画面から登録できます。</div>`;
+}
+
+function finishWorkout() {
+  if (!state.activeWorkout) { showToast("まだ記録がありません", "セットを保存するとトレーニングが開始されます。", false); return; }
+  const workoutId = state.activeWorkout.id;
+  const sets = state.sets.filter((set) => set.workout_id === workoutId);
+  const exerciseCount = new Set(sets.map((set) => set.comparison_key)).size;
+  if (!state.completedWorkouts.includes(workoutId)) state.completedWorkouts.push(workoutId);
+  state.activeWorkout = null;
+  state.bodypart = ""; state.exercise = null; state.machine = null; state.executionVariant = "";
+  persist(); renderBodyparts(); $("exerciseSection").hidden = true;
+  showToast("今日のトレーニングを終了しました", `${exerciseCount}種目・${sets.length}セットを保存しました。`, false);
+}
+
+function openExerciseDialog() {
+  $("customBodypart").innerHTML = BODY_PARTS.map((part) => `<option value="${part}">${part}</option>`).join("");
+  $("customBodypart").value = state.bodypart || BODY_PARTS[0];
+  $("exerciseDialog").showModal();
+}
+
+function saveCustomExercise(event) {
+  event.preventDefault();
+  const name = $("customExerciseName").value.trim(); if (!name) return;
+  const exercise = {
+    exercise_id: uid("CUSTOM"), exercise_name: name, bodypart_ui: $("customBodypart").value,
+    anatomical_target: $("customBodypart").value, equipment_cat: $("customEquipment").value,
+    range_type: $("customRange").value, pattern: $("customPattern").value.trim() || "Custom",
+    step_kg: Number($("customStep").value) || 2.5, custom: true
+  };
+  state.customExercises.push(exercise); state.bodypart = exercise.bodypart_ui; persist();
+  event.currentTarget.reset(); $("exerciseDialog").close(); renderBodyparts(); $("exerciseSection").hidden = false; renderExercises();
+  showToast("種目を追加しました", exercise.exercise_name, false);
 }
 
 function bindEvents() {
@@ -402,18 +472,23 @@ function bindEvents() {
   document.querySelectorAll("[data-view]").forEach((button) => button.addEventListener("click", () => showView(button.dataset.view)));
   $("bodypartGrid").addEventListener("click", (event) => { const button = event.target.closest("[data-part]"); if (!button) return; state.bodypart = button.dataset.part; renderBodyparts(); $("exerciseSection").hidden = false; renderExercises(); $("exerciseSection").scrollIntoView({ behavior: "smooth", block: "start" }); });
   $("exerciseSearch").addEventListener("input", renderExercises);
-  $("exerciseList").addEventListener("click", (event) => { const button = event.target.closest("[data-exercise]"); if (button) selectExercise(EXERCISES.find((ex) => ex.exercise_id === button.dataset.exercise)); });
+  $("exerciseList").addEventListener("click", (event) => { const button = event.target.closest("[data-exercise]"); if (button) selectExercise(allExercises().find((ex) => ex.exercise_id === button.dataset.exercise)); });
   [$("openGymBtn"), $("changeGymBtn")].forEach((button) => button.addEventListener("click", openGymDialog));
   $("closeGymBtn").addEventListener("click", () => $("gymDialog").close());
   $("closeMachineBtn").addEventListener("click", () => $("machineDialog").close());
   $("closeSetBtn").addEventListener("click", () => $("setDialog").close());
   $("finishExerciseBtn").addEventListener("click", () => { $("setDialog").close(); showToast("種目を終了しました", "今日のセットは進捗画面から確認できます。", false); });
+  $("finishWorkoutBtn").addEventListener("click", finishWorkout);
+  $("addExerciseBtn").addEventListener("click", openExerciseDialog);
+  $("closeExerciseBtn").addEventListener("click", () => $("exerciseDialog").close());
+  $("exerciseForm").addEventListener("submit", saveCustomExercise);
   $("showNewGymBtn").addEventListener("click", () => $("newGymFields").hidden = false);
   $("saveGymBtn").addEventListener("click", () => { const name = $("newGymName").value.trim(); if (!name) return; const gym = { id: uid("GYM"), name }; state.gyms.push(gym); state.profile.currentGymId = gym.id; $("newGymName").value = ""; persist(); renderGyms(); renderProfile(); showToast("ジムを登録しました", name); if (state.exercise?.equipment_cat === "Machine") { $("gymDialog").close(); openMachineDialog(state.exercise); } });
   $("gymList").addEventListener("click", (event) => { const button = event.target.closest("[data-gym]"); if (!button) return; state.profile.currentGymId = button.dataset.gym; persist(); renderProfile(); $("gymDialog").close(); });
   $("showNewMachineBtn").addEventListener("click", () => { if (!currentGym()) { $("machineDialog").close(); openGymDialog(); return; } $("newMachineFields").hidden = false; });
-  $("saveMachineBtn").addEventListener("click", () => { const name = $("newMachineName").value.trim(); if (!name || !currentGym()) return; const machine = { id: uid("MACHINE"), gym_id: currentGym().id, exercise_id: state.exercise.exercise_id, name, maker: $("newMachineMaker").value.trim(), note: $("newMachineNote").value.trim() }; state.machines.push(machine); state.machine = machine; ["newMachineName", "newMachineMaker", "newMachineNote"].forEach((id) => $(id).value = ""); persist(); $("machineDialog").close(); openSetDialog(); });
-  $("machineList").addEventListener("click", (event) => { const button = event.target.closest("[data-machine]"); if (!button) return; state.machine = state.machines.find((machine) => machine.id === button.dataset.machine); $("machineDialog").close(); openSetDialog(); });
+  $("saveMachineBtn").addEventListener("click", () => { const name = $("newMachineName").value.trim(); if (!name || !currentGym()) return; const machine = { id: uid("MACHINE"), gym_id: currentGym().id, name, maker: $("newMachineMaker").value.trim(), note: $("newMachineNote").value.trim() }; state.machines.push(machine); ["newMachineName", "newMachineMaker", "newMachineNote"].forEach((id) => $(id).value = ""); persist(); $("newMachineFields").hidden = true; showVariationFields(machine); });
+  $("machineList").addEventListener("click", (event) => { const button = event.target.closest("[data-machine]"); if (!button) return; showVariationFields(state.machines.find((machine) => machine.id === button.dataset.machine)); });
+  $("startWithVariationBtn").addEventListener("click", () => { state.executionVariant = $("executionVariantInput").value.trim() || "標準（両手）"; $("machineDialog").close(); openSetDialog(); });
   document.querySelectorAll("[data-adjust]").forEach((button) => button.addEventListener("click", () => { const input = button.dataset.adjust === "weight" ? $("weightInput") : $("repsInput"); const value = Number(input.value || 0) + Number(button.dataset.delta); input.value = Math.max(button.dataset.adjust === "reps" ? 1 : 0, value); }));
   $("togglePainBtn").addEventListener("click", () => $("painFields").hidden = !$("painFields").hidden);
   $("painScore").addEventListener("input", () => $("painOutput").value = $("painScore").value);
