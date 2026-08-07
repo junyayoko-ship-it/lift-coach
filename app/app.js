@@ -9,6 +9,7 @@ const STORE = {
   sets: "liftcoach_sets_v2",
   queue: "liftcoach_offline_queue_v2",
   syncUrl: "liftcoach_sync_url_v2",
+  syncToken: "liftcoach_sync_token_v2",
   lastSync: "liftcoach_last_sync_v2",
   demoMode: "liftcoach_demo_mode_v2",
   demoSets: "liftcoach_demo_sets_v2",
@@ -60,6 +61,7 @@ let state = {
   completedWorkouts: read(initialDemoMode ? STORE.demoCompletedWorkouts : STORE.completedWorkouts, []),
   sets: read(initialDemoMode ? STORE.demoSets : STORE.sets, []),
   syncUrl: read(STORE.syncUrl, DEFAULT_API_URL),
+  syncToken: read(STORE.syncToken, ""),
   lastSync: read(STORE.lastSync, ""),
   demoMode: initialDemoMode,
   bodypart: "",
@@ -79,6 +81,7 @@ function persist() {
   write(state.demoMode ? STORE.demoCompletedWorkouts : STORE.completedWorkouts, state.completedWorkouts);
   write(state.demoMode ? STORE.demoSets : STORE.sets, state.sets);
   write(STORE.syncUrl, state.syncUrl);
+  write(STORE.syncToken, state.syncToken);
   write(STORE.lastSync, state.lastSync);
   write(STORE.demoMode, state.demoMode);
 }
@@ -223,6 +226,7 @@ function showView(name) {
   document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.view === name));
   if (name === "history") renderHistory();
   if (name === "settings") renderSettings();
+  if (name === "train") renderTodaySummary();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -230,6 +234,28 @@ function renderProfile() {
   const firstName = state.profile?.name?.trim();
   $("greeting").textContent = firstName ? `${firstName}さん、今日は何を鍛える？` : "今日は何を鍛える？";
   $("currentGymName").textContent = currentGym()?.name || "未設定（マシン利用時に登録）";
+}
+
+function renderTodaySummary() {
+  const todaySets = state.sets.filter((set) => localDateKey(new Date(set.timestamp)) === localDateKey()).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  $("todaySummary").hidden = todaySets.length === 0;
+  if (!todaySets.length) return;
+  const workoutIds = [...new Set(todaySets.map((set) => set.workout_id))];
+  const exerciseGroups = [];
+  todaySets.forEach((set) => {
+    const key = `${set.workout_id}|${set.comparison_key}`;
+    let group = exerciseGroups.find((item) => item.key === key);
+    if (!group) { group = { key, sets: [], workoutIndex: workoutIds.indexOf(set.workout_id) + 1 }; exerciseGroups.push(group); }
+    group.sets.push(set);
+  });
+  const volume = todaySets.reduce((sum, set) => sum + Number(set.weight) * Number(set.reps), 0);
+  $("todaySessionCount").textContent = workoutIds.length > 1 ? `${workoutIds.length}セッション` : "今日の合計";
+  $("todayMetrics").innerHTML = `<div class="metric"><small>種目</small><strong>${exerciseGroups.length}</strong></div><div class="metric"><small>セット</small><strong>${todaySets.length}</strong></div><div class="metric"><small>総負荷量</small><strong>${Math.round(volume).toLocaleString()}kg</strong></div>`;
+  $("todayExerciseList").innerHTML = exerciseGroups.map((group) => {
+    const sets = group.sets; const first = sets[0]; const reps = sets.reduce((sum, set) => sum + Number(set.reps), 0);
+    const session = workoutIds.length > 1 ? `セッション${group.workoutIndex} ・ ` : "";
+    return `<article class="today-exercise"><span class="today-order">${first.exercise_order || "?"}</span><div><strong>${first.exercise_name}</strong><small>${session}${sets.map((set) => `${set.weight}kg×${set.reps}`).join(" / ")}</small></div><strong>${sets.length}セット<br>${reps}回</strong></article>`;
+  }).join("");
 }
 
 function renderBodyparts() {
@@ -318,28 +344,21 @@ function renderSetSession() {
   const previousBest = bestRecentSet(previous);
   const rec = current.length ? nextSetRecommendation(current[current.length - 1]) : recommendation(previousBest, exercise);
   $("setBodypart").textContent = `${exercise.bodypart_ui} ・ 今日${exerciseOrder}種目目`;
-  $("setExerciseName").textContent = exercise.exercise_name;
-  $("setMachineName").textContent = state.machine ? `${currentGym()?.name} ・ ${state.machine.name} ・ ${state.executionVariant}` : exercise.equipment_cat;
-  const previousTotal = previous.reduce((sum, set) => sum + Number(set.reps), 0);
-  const previousOrder = previous.length ? Number(previous[0].exercise_order || 0) : 0;
-  const orderNote = previous.length && previousOrder && previousOrder !== exerciseOrder ? `<div class="condition-warning">前回は${previousOrder}種目目、今回は${exerciseOrder}種目目です。疲労条件が異なるため参考値として表示しています。</div>` : "";
-  $("previousCard").innerHTML = previous.length ? `<div class="session-title"><span>前回の全セット ・ ${previousOrder || "順番未記録"}${previousOrder ? "種目目" : ""}</span><small>${formatDate(previous[0].timestamp)} ・ 合計${previousTotal}回</small></div>${setRows(previous)}${orderNote}` : `<span>同じ条件の前回記録</span><strong>なし</strong><small>今日の記録が、このマシン・種目順の基準になります。</small>`;
-  const currentTotal = current.reduce((sum, set) => sum + Number(set.reps), 0);
-  $("currentSessionCard").innerHTML = `<div class="session-title"><span>今日のセット</span><strong>${current.length}セット ・ 合計${currentTotal}回</strong></div>${current.length ? setRows(current) : `<small>まだセットを保存していません。</small>`}`;
-  $("recommendationCard").innerHTML = `<span>${current.length ? "次セットの目安" : "1セット目の目安"}</span><strong>${rec.weight !== "" ? `${rec.weight}kg × ` : ""}${current.length ? `${(state.profile?.goal || "hypertrophy") === "strength" ? "4〜8" : (state.profile?.goal || "hypertrophy") === "balanced" ? "6〜10" : "8〜12"}回` : `${rec.reps}回から`}</strong><small>${rec.text}</small>`;
-  $("weightInput").value = rec.weight;
-  $("repsInput").value = rec.reps;
-  $("saveSetBtn").textContent = `セット${current.length + 1}を保存`;
-  document.querySel…2629 tokens truncated…itle: `${improved.length}条件で向上`, text: improved.slice(0, 3).map((item) => item.latest[0].exercise_name).join("、") + "で重量・回数・総負荷量のいずれかが改善しました。" });
-  if (review.length) insights.push({ tone: "warn", title: `${review.length}条件を要確認`, text: "前回より総負荷量が15%以上低下しています。種目順、疲労、フォーム、体調を確認しましょう。" });
-  if (pain.length) insights.push({ tone: "danger", title: "痛みの記録があります", text: `${pain.map((set) => set.pain_area || set.bodypart_ui).filter((value, index, array) => array.indexOf(value) === index).join("、")}の重量アップは保留候補です。` });
-  if (previousSets.length && currentSets.length >= previousSets.length * 1.5 && currentSets.length - previousSets.length >= 4) insights.push({ tone: "warn", title: "セット数が大きく増えています", text: `前週${previousSets.length}セットから今週${currentSets.length}セットです。回復状態も確認してください。` });
-  $("weeklyInsights").innerHTML = insights.map((item) => `<article class="insight ${item.tone}"><strong>${item.title}</strong><span>${item.text}</span></article>`).join("");
-  const parts = [...new Set([...Object.keys(current), ...Object.keys(previous)])].sort((a, b) => (current[b]?.sets || 0) - (current[a]?.sets || 0));
-  $("bodypartWeekly").innerHTML = parts.length ? `<div class="weekly-head"><span>部位</span><span>今週</span><span>前週</span><span>頻度</span></div>${parts.map((part) => {
-    const now = current[part]; const before = previous[part]; const delta = (now?.sets || 0) - (before?.sets || 0);
-    return `<div class="weekly-row"><strong>${part}</strong><span>${now?.sets || 0}セット</span><span>${before?.sets || 0}セット</span><span>${now?.workouts.size || 0}回${delta ? `<small class="${delta > 0 ? "up" : "down"}">${delta > 0 ? "+" : ""}${delta}</small>` : ""}</span></div>`;
-  }).join("")}` : "";
+  $("setExerciseName").textContent = exercise.exercise_n…4012 tokens truncated… || new Date(b[0][0].timestamp) - new Date(a[0][0].timestamp));
+  if (!candidates.length) {
+    $("exerciseTrendTitle").textContent = "代表種目の強度";
+    $("exerciseTrendChart").innerHTML = `<div class="chart-empty">同じ条件で2回以上記録すると<br>強度の推移が表示されます</div>`;
+    return;
+  }
+  const sessions = candidates[0].slice(0, 8).reverse();
+  const points = sessions.map((sets) => {
+    const best = Math.max(...sets.map((set) => Number(set.weight) * (1 + Number(set.reps) / 30)));
+    return { value: best, label: `${new Date(sets[0].timestamp).getMonth() + 1}/${new Date(sets[0].timestamp).getDate()}` };
+  });
+  const min = Math.min(...points.map((point) => point.value)); const max = Math.max(...points.map((point) => point.value)); const range = Math.max(max - min, 1);
+  const coords = points.map((point, index) => ({ ...point, x: 18 + index * (284 / Math.max(points.length - 1, 1)), y: 118 - ((point.value - min) / range) * 88 }));
+  $("exerciseTrendTitle").textContent = sessions[0][0].exercise_name;
+  $("exerciseTrendChart").innerHTML = `<svg class="chart-svg" viewBox="0 0 320 150" role="img" aria-label="${sessions[0][0].exercise_name}の推定1RM推移"><line x1="12" y1="118" x2="308" y2="118" stroke="#354035"/><polyline points="${coords.map((point) => `${point.x},${point.y}`).join(" ")}" fill="none" stroke="#c8f55b" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>${coords.map((point) => `<circle cx="${point.x}" cy="${point.y}" r="4" fill="#c8f55b"/><text class="chart-value" x="${point.x}" y="${Math.max(10, point.y - 8)}" text-anchor="middle">${point.value.toFixed(1)}</text><text class="chart-label" x="${point.x}" y="137" text-anchor="middle">${point.label}</text>`).join("")}</svg>`;
 }
 
 function renderHistory() {
@@ -348,6 +367,7 @@ function renderHistory() {
   const volume = weekSets.reduce((sum, set) => sum + set.weight * set.reps, 0);
   const activeParts = new Set(weekSets.map((set) => set.bodypart_ui)).size;
   $("progressSummary").innerHTML = `<div class="metric"><small>今週のセット</small><strong>${weekSets.length}</strong></div><div class="metric"><small>総負荷量</small><strong>${Math.round(volume).toLocaleString()}kg</strong></div><div class="metric"><small>実施部位</small><strong>${activeParts}</strong></div>`;
+  renderTrendCharts();
   renderWeeklyReview();
   const groups = [];
   state.sets.forEach((set) => {
@@ -453,7 +473,8 @@ async function importBackup(file) {
 function renderSettings() {
   $("settingsName").value = state.profile?.name || ""; $("settingsGoal").value = state.profile?.goal || "hypertrophy";
   $("syncUrl").value = state.syncUrl || "";
-  $("syncState").textContent = state.demoMode ? "同期停止中" : state.lastSync ? `最終 ${formatDate(state.lastSync)}` : state.syncUrl ? "未同期" : "未設定";
+  $("syncToken").value = state.syncToken || "";
+  $("syncState").textContent = state.demoMode ? "同期停止中" : state.lastSync && state.syncToken ? `最終 ${formatDate(state.lastSync)}` : state.syncUrl && state.syncToken ? "未同期" : "未設定";
   $("demoState").hidden = !state.demoMode; $("exitDemoBtn").hidden = !state.demoMode;
   $("demoBtn").textContent = state.demoMode ? "ダミーデータを作り直す" : "ダミーデータを作成して見る";
   $("machineLibrary").innerHTML = state.gyms.length ? state.gyms.map((gym) => `<div class="library-group"><strong>${gym.name}</strong>${state.machines.filter((machine) => machine.gym_id === gym.id).map((machine) => `<div><span>${machine.name}</span><small>${machine.maker || "登録済み"}</small></div>`).join("") || `<small>マシン未登録</small>`}</div>`).join("") : `<div class="empty-state">ジムとマシンは、トレーニング画面から登録できます。</div>`;
@@ -467,7 +488,7 @@ function finishWorkout() {
   if (!state.completedWorkouts.includes(workoutId)) state.completedWorkouts.push(workoutId);
   state.activeWorkout = null;
   state.bodypart = ""; state.exercise = null; state.machine = null; state.executionVariant = "";
-  persist(); renderBodyparts(); $("exerciseSection").hidden = true;
+  persist(); renderBodyparts(); renderTodaySummary(); $("exerciseSection").hidden = true;
   showToast("今日のトレーニングを終了しました", `${exerciseCount}種目・${sets.length}セットを保存しました。`, false);
 }
 
@@ -526,7 +547,7 @@ function bindEvents() {
   $("saveSyncBtn").addEventListener("click", () => {
     const url = $("syncUrl").value.trim();
     if (url && (!url.startsWith("https://script.google.com/") || !url.endsWith("/exec"))) { showToast("URLを確認してください", "Apps Scriptでデプロイした /exec で終わるURLを入力してください。", false); return; }
-    state.syncUrl = url; persist(); renderSettings(); showToast("同期設定を保存しました", url ? "「今すぐ同期」で接続を確認できます。" : "クラウド同期を停止しました。", false);
+    state.syncUrl = url; state.syncToken = $("syncToken").value.trim(); persist(); renderSettings(); showToast("同期設定を保存しました", url && state.syncToken ? "「今すぐ同期」で接続を確認できます。" : "URLと同期トークンの両方を設定してください。", false);
   });
   $("syncNowBtn").addEventListener("click", () => syncNow());
   $("exportBtn").addEventListener("click", exportBackup);
@@ -540,7 +561,7 @@ function bindEvents() {
 
 document.addEventListener("DOMContentLoaded", () => {
   if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register("./service-worker.js").catch(() => {});
-  renderBodyparts(); renderProfile(); updateQueueUI(); bindEvents();
+  renderBodyparts(); renderProfile(); renderTodaySummary(); updateQueueUI(); bindEvents();
   if (!state.profile) { $("onboardingView").hidden = false; $("trainView").hidden = true; document.querySelector(".bottom-nav").hidden = true; }
   else { document.querySelector(".bottom-nav").hidden = false; syncNow({ silent: true }); }
 });
