@@ -1,76 +1,135 @@
 <!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link rel="manifest" href="./manifest.json" />
-  <meta name="theme-color" content="#0B0B0C" />
-  <link rel="stylesheet" href="./styles.css" />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#10140f">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="stylesheet" href="./styles.css">
   <title>Lift Coach</title>
 </head>
 <body>
-  <header class="top">
-    <div class="title">Lift Coach</div>
-    <div id="netBadge" class="badge">ONLINE</div>
+  <header class="topbar">
+    <button class="brand" data-view="train" aria-label="トレーニング画面へ">
+      <span class="brand-mark">L</span><span>Lift Coach</span>
+    </button>
+    <div class="top-actions">
+      <span id="queueBadge" class="status-pill" hidden>未送信 0</span>
+      <span id="netBadge" class="status-pill online">オンライン</span>
+    </div>
   </header>
 
-  <main>
-    <section class="card">
-      <div class="row">
-        <button id="syncBtn" class="btn">未送信を送信</button>
-        <button id="pingBtn" class="btn">API Ping</button>
+  <main class="app-shell">
+    <section id="onboardingView" class="view" hidden>
+      <div class="hero-card">
+        <span class="eyebrow">はじめに</span>
+        <h1>今日の気分で選んで、<br>成長だけは見失わない。</h1>
+        <p>目的に合わせて、前回比較と次の一歩を提案します。</p>
       </div>
-      <div id="queueInfo" class="small"></div>
-      <div id="pingInfo" class="small"></div>
+      <form id="onboardingForm" class="panel stack">
+        <label class="field-label" for="displayName">名前</label>
+        <input id="displayName" autocomplete="name" placeholder="例：Jun">
+        <fieldset>
+          <legend>トレーニングの目標</legend>
+          <label class="choice-card selected"><input type="radio" name="goal" value="hypertrophy" checked><span><strong>筋肥大</strong><small>筋肉を大きくする</small></span></label>
+          <label class="choice-card"><input type="radio" name="goal" value="strength"><span><strong>筋力向上</strong><small>扱える重量を伸ばす</small></span></label>
+          <label class="choice-card"><input type="radio" name="goal" value="balanced"><span><strong>バランス</strong><small>筋量と筋力を両方伸ばす</small></span></label>
+        </fieldset>
+        <button class="primary-btn" type="submit">始める</button>
+      </form>
     </section>
 
-    <section class="card">
-      <div class="small">部位フィルタ</div>
-      <select id="bodypartSel">
-        <option value="">（選択）</option>
-        <option>肩前</option><option>肩中</option><option>肩後</option>
-        <option>2頭</option><option>3頭</option>
-        <option>胸上部</option><option>胸中部</option><option>胸下部</option>
-        <option>広背筋</option>
-        <option>僧帽筋上部</option><option>僧帽筋中部</option><option>僧帽筋下部</option>
-        <option>4頭</option><option>ハム</option><option>お尻</option><option>カーフ</option>
-      </select>
+    <section id="trainView" class="view">
+      <div class="greeting-row">
+        <div><span class="eyebrow">TODAY</span><h1 id="greeting">今日は何を鍛える？</h1></div>
+        <button id="openGymBtn" class="icon-btn" aria-label="ジムを選択">⌖</button>
+      </div>
 
-      <div class="small" style="margin-top:10px;">検索（インクリメンタル）</div>
-      <input id="searchInput" placeholder="例：レイズ / ケーブル / プレス" />
+      <div id="gymSummary" class="context-card">
+        <div><small>現在のジム</small><strong id="currentGymName">未設定</strong></div>
+        <button id="changeGymBtn" class="text-btn">変更</button>
+      </div>
 
-      <div id="exList" class="list"></div>
-      <div id="exInfo" class="small"></div>
-<section class="card" id="selectedCard" style="display:none;">
-  <div class="small">選択中の種目</div>
-  <div id="selectedName" style="font-weight:700;margin-top:6px;"></div>
+      <section class="section-block">
+        <div class="section-heading"><div><span class="eyebrow">STEP 1</span><h2>部位を選ぶ</h2></div><span class="muted">自由に選択</span></div>
+        <div id="bodypartGrid" class="chip-grid"></div>
+      </section>
 
-  <div class="row" style="margin-top:10px;">
-    <div style="flex:1;">
-      <div class="small">重量</div>
-      <input id="weightInput" type="number" step="0.5" />
-    </div>
-    <div style="flex:1;">
-      <div class="small">回数</div>
-      <input id="repsInput" type="number" />
-    </div>
-    <div style="flex:1;">
-      <div class="small">RIR</div>
-      <input id="rirInput" type="number" min="0" max="5" />
-    </div>
-  </div>
-
-  <button id="saveSetBtn" class="btn primary" style="margin-top:12px;">セット保存</button>
-</section>
-
-      
+      <section id="exerciseSection" class="section-block" hidden>
+        <div class="section-heading"><div><span class="eyebrow">STEP 2</span><h2>種目を選ぶ</h2></div></div>
+        <input id="exerciseSearch" class="search" type="search" placeholder="種目名や器具で検索">
+        <div id="balanceHint" class="coach-note" hidden></div>
+        <div id="exerciseList" class="exercise-list"></div>
+      </section>
     </section>
 
-    <section class="card">
-      <button id="demoSaveBtn" class="btn primary">（デモ）セット保存</button>
-      <div class="small">まずは sets_log に1行入るかを確認します</div>
+    <section id="historyView" class="view" hidden>
+      <div class="page-heading"><span class="eyebrow">PROGRESS</span><h1>記録と漸進性</h1><p>同じ種目・同じマシンを優先して比較します。</p></div>
+      <div id="progressSummary" class="metric-grid"></div>
+      <section class="section-block"><div class="section-heading"><h2>最近のセット</h2></div><div id="historyList" class="history-list"></div></section>
+    </section>
+
+    <section id="settingsView" class="view" hidden>
+      <div class="page-heading"><span class="eyebrow">SETTINGS</span><h1>設定</h1></div>
+      <div class="panel stack">
+        <label class="field-label" for="settingsName">名前</label><input id="settingsName">
+        <label class="field-label" for="settingsGoal">目標</label>
+        <select id="settingsGoal"><option value="hypertrophy">筋肥大</option><option value="strength">筋力向上</option><option value="balanced">バランス</option></select>
+        <button id="saveSettingsBtn" class="primary-btn">設定を保存</button>
+      </div>
+      <section class="section-block"><div class="section-heading"><h2>登録済みのジム・マシン</h2><button id="addMachineFromSettings" class="text-btn">追加</button></div><div id="machineLibrary" class="machine-library"></div></section>
     </section>
   </main>
+
+  <nav class="bottom-nav" aria-label="メインメニュー">
+    <button class="nav-item active" data-view="train"><span>＋</span>記録</button>
+    <button class="nav-item" data-view="history"><span>↗</span>進捗</button>
+    <button class="nav-item" data-view="settings"><span>⚙</span>設定</button>
+  </nav>
+
+  <dialog id="gymDialog" class="sheet">
+    <form method="dialog" class="sheet-content">
+      <div class="sheet-handle"></div><div class="section-heading"><h2>ジムを選ぶ</h2><button id="closeGymBtn" type="button" class="icon-btn" aria-label="閉じる">×</button></div>
+      <div id="gymList" class="choice-list"></div>
+      <button id="showNewGymBtn" type="button" class="secondary-btn">＋ 新しいジムを登録</button>
+      <div id="newGymFields" class="inline-form" hidden><input id="newGymName" placeholder="ジム名・店舗名"><button id="saveGymBtn" type="button" class="primary-btn">登録</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="machineDialog" class="sheet">
+    <form method="dialog" class="sheet-content">
+      <div class="sheet-handle"></div><div class="section-heading"><div><span class="eyebrow">MACHINE</span><h2>使用する器具</h2></div><button id="closeMachineBtn" type="button" class="icon-btn" aria-label="閉じる">×</button></div>
+      <p id="machineDialogHelp" class="muted"></p>
+      <div id="machineList" class="choice-list"></div>
+      <button id="showNewMachineBtn" type="button" class="secondary-btn">＋ このマシンを初回登録</button>
+      <div id="newMachineFields" class="inline-form stack" hidden>
+        <input id="newMachineName" placeholder="マシン名（必須）">
+        <input id="newMachineMaker" placeholder="メーカー・型番（任意）">
+        <input id="newMachineNote" placeholder="目印・補足（任意）">
+        <button id="saveMachineBtn" type="button" class="primary-btn">このマシンを登録して使う</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="setDialog" class="sheet set-sheet">
+    <form id="setForm" method="dialog" class="sheet-content">
+      <div class="sheet-handle"></div>
+      <div class="section-heading"><div><span id="setBodypart" class="eyebrow"></span><h2 id="setExerciseName"></h2><p id="setMachineName" class="muted"></p></div><button id="closeSetBtn" type="button" class="icon-btn" aria-label="閉じる">×</button></div>
+      <div id="previousCard" class="previous-card"></div>
+      <div id="recommendationCard" class="recommendation-card"></div>
+      <div class="number-grid">
+        <div class="number-control"><label>重量 <small>kg</small></label><div><button type="button" data-adjust="weight" data-delta="-2.5">−</button><input id="weightInput" type="number" inputmode="decimal" step="0.5" min="0"><button type="button" data-adjust="weight" data-delta="2.5">＋</button></div></div>
+        <div class="number-control"><label>回数</label><div><button type="button" data-adjust="reps" data-delta="-1">−</button><input id="repsInput" type="number" inputmode="numeric" step="1" min="1"><button type="button" data-adjust="reps" data-delta="1">＋</button></div></div>
+      </div>
+      <fieldset class="rir-field"><legend>RIR <small>あと何回できた？（任意）</small></legend><div class="segmented"><label><input type="radio" name="rir" value="0"><span>0</span></label><label><input type="radio" name="rir" value="1"><span>1</span></label><label><input type="radio" name="rir" value="2"><span>2</span></label><label><input type="radio" name="rir" value="3"><span>3+</span></label></div></fieldset>
+      <button id="togglePainBtn" type="button" class="text-btn left">＋ 痛み・違和感を記録</button>
+      <div id="painFields" class="pain-fields" hidden><input id="painArea" placeholder="痛む場所"><label>強さ <output id="painOutput">1</output>/5<input id="painScore" type="range" min="1" max="5" value="1"></label></div>
+      <p id="setError" class="error" role="alert"></p>
+      <button id="saveSetBtn" type="submit" class="primary-btn large">セットを保存</button>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden><div><strong id="toastTitle"></strong><span id="toastMessage"></span></div><button id="undoBtn" class="text-btn">取り消す</button></div>
 
   <script src="./app.js"></script>
 </body>
