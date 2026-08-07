@@ -57,6 +57,8 @@ input:focus, select:focus { border-color: #718d2f; box-shadow: 0 0 0 3px rgba(20
 .context-card { padding: 13px 15px; border: 1px solid var(--line); border-radius: 15px; background: var(--surface); }
 .context-card div { display: grid; gap: 3px; }
 .context-card small { color: var(--muted); }
+.finish-workout-btn { width: 100%; margin-top: 9px; padding: 10px; color: var(--muted); border: 1px solid var(--line); border-radius: 13px; background: transparent; font-size: 12px; font-weight: 800; }
+.finish-workout-btn:hover { color: var(--text); border-color: #596359; }
 .section-block { margin-top: 28px; }
 .section-heading { margin-bottom: 13px; }
 .chip-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
@@ -101,6 +103,7 @@ input:focus, select:focus { border-color: #718d2f; box-shadow: 0 0 0 3px rgba(20
 .inline-form { margin-top: 12px; }
 .inline-form:not(.stack) { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .inline-form:not(.stack) .primary-btn { width: auto; }
+.variation-fields { display: grid; gap: 10px; margin-top: 14px; padding: 14px; border: 1px solid #526426; border-radius: 15px; background: var(--accent-dark); }
 .previous-card, .session-card, .recommendation-card { display: grid; gap: 7px; margin-bottom: 10px; padding: 14px; border-radius: 15px; }
 .previous-card { border: 1px solid var(--line); background: #101410; }
 .session-card { border: 1px solid #3d4b25; background: #161d12; }
