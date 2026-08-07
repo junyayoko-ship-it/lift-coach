@@ -60,6 +60,34 @@ function persist() {
   write(STORE.sets, state.sets);
 }
 
+function localDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function migrateSetHistory() {
+  const workouts = new Map();
+  state.sets.forEach((set) => {
+    if (!set.workout_id) set.workout_id = `W-${localDateKey(new Date(set.timestamp))}`;
+    if (!set.comparison_key) set.comparison_key = `${set.exercise_id}|${set.equipment_variant_id || set.equipment_cat}`;
+    if (!workouts.has(set.workout_id)) workouts.set(set.workout_id, []);
+    workouts.get(set.workout_id).push(set);
+  });
+  workouts.forEach((sets) => {
+    const ordered = [...sets].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    const orderByExercise = new Map();
+    ordered.forEach((set) => {
+      if (!orderByExercise.has(set.comparison_key)) orderByExercise.set(set.comparison_key, orderByExercise.size + 1);
+      if (!set.exercise_order) set.exercise_order = orderByExercise.get(set.comparison_key);
+    });
+  });
+  persist();
+}
+
+migrateSetHistory();
+
 function goalLabel(goal) {
   return { hypertrophy: "筋肥大", strength: "筋力向上", balanced: "バランス" }[goal] || "筋肥大";
 }
@@ -80,7 +108,7 @@ function currentGym() {
 }
 
 function currentWorkoutId() {
-  return `W-${new Date().toISOString().slice(0, 10)}`;
+  return `W-${localDateKey()}`;
 }
 
 function comparisonKey(exercise, machineId = "") {
