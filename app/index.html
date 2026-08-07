@@ -51,6 +51,12 @@
       </div>
       <button id="finishWorkoutBtn" class="finish-workout-btn">今日のトレーニングを終了</button>
 
+      <section id="todaySummary" class="today-summary" hidden>
+        <div class="section-heading"><div><span class="eyebrow">TODAY'S LOG</span><h2>今日やったこと</h2></div><span id="todaySessionCount" class="muted"></span></div>
+        <div id="todayMetrics" class="metric-grid"></div>
+        <div id="todayExerciseList" class="today-exercise-list"></div>
+      </section>
+
       <section class="section-block">
         <div class="section-heading"><div><span class="eyebrow">STEP 1</span><h2>部位を選ぶ</h2></div><span class="muted">自由に選択</span></div>
         <div id="bodypartGrid" class="chip-grid"></div>
@@ -67,6 +73,13 @@
     <section id="historyView" class="view" hidden>
       <div class="page-heading"><span class="eyebrow">PROGRESS</span><h1>記録と漸進性</h1><p>同じ種目・同じマシンを優先して比較します。</p></div>
       <div id="progressSummary" class="metric-grid"></div>
+      <section class="section-block">
+        <div class="section-heading"><div><span class="eyebrow">TRENDS</span><h2>伸びをグラフで確認</h2></div><span class="muted">直近8週</span></div>
+        <div class="chart-grid">
+          <article class="chart-card"><div class="chart-title"><strong>週間総負荷量</strong><small>重量 × 回数の合計</small></div><div id="weeklyVolumeChart"></div></article>
+          <article class="chart-card"><div class="chart-title"><strong id="exerciseTrendTitle">代表種目の強度</strong><small>同じ条件・種目順の推定1RM</small></div><div id="exerciseTrendChart"></div></article>
+        </div>
+      </section>
       <section class="section-block">
         <div class="section-heading"><div><span class="eyebrow">WEEKLY REVIEW</span><h2>今週のレビュー</h2></div><span id="weekRange" class="muted"></span></div>
         <div id="weeklyInsights" class="insight-list"></div>
@@ -88,6 +101,8 @@
         <div class="panel stack">
           <label class="field-label" for="syncUrl">Apps Script のウェブアプリURL</label>
           <input id="syncUrl" type="url" inputmode="url" placeholder="https://script.google.com/macros/s/.../exec">
+          <label class="field-label" for="syncToken">同期トークン</label>
+          <input id="syncToken" type="password" autocomplete="off" placeholder="Apps Scriptに設定した秘密のトークン">
           <p class="setting-help">URLを設定すると、端末内の記録をGoogle Sheetsへ保存し、機種変更時にも復元できます。</p>
           <div class="button-pair"><button id="saveSyncBtn" class="secondary-btn" type="button">URLを保存</button><button id="syncNowBtn" class="primary-btn" type="button">今すぐ同期</button></div>
           <div class="button-pair"><button id="exportBtn" class="secondary-btn" type="button">JSONバックアップ</button><button id="importBtn" class="secondary-btn" type="button">JSONから復元</button></div>
