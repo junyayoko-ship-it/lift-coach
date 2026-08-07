@@ -83,6 +83,25 @@
         <select id="settingsGoal"><option value="hypertrophy">筋肥大</option><option value="strength">筋力向上</option><option value="balanced">バランス</option></select>
         <button id="saveSettingsBtn" class="primary-btn">設定を保存</button>
       </div>
+      <section class="section-block">
+        <div class="section-heading"><div><span class="eyebrow">CLOUD BACKUP</span><h2>Google Sheets 同期</h2></div><span id="syncState" class="muted">未設定</span></div>
+        <div class="panel stack">
+          <label class="field-label" for="syncUrl">Apps Script のウェブアプリURL</label>
+          <input id="syncUrl" type="url" inputmode="url" placeholder="https://script.google.com/macros/s/.../exec">
+          <p class="setting-help">URLを設定すると、端末内の記録をGoogle Sheetsへ保存し、機種変更時にも復元できます。</p>
+          <div class="button-pair"><button id="saveSyncBtn" class="secondary-btn" type="button">URLを保存</button><button id="syncNowBtn" class="primary-btn" type="button">今すぐ同期</button></div>
+          <div class="button-pair"><button id="exportBtn" class="secondary-btn" type="button">JSONバックアップ</button><button id="importBtn" class="secondary-btn" type="button">JSONから復元</button></div>
+          <input id="importFile" type="file" accept="application/json" hidden>
+        </div>
+      </section>
+      <section class="section-block">
+        <div class="section-heading"><div><span class="eyebrow">PREVIEW</span><h2>ダミーデータで確認</h2></div><span id="demoState" class="demo-pill" hidden>DEMO</span></div>
+        <div class="panel stack">
+          <p class="setting-help">12週間・約700セットのサンプルを作り、週次分析や前回比較を確認します。実際の記録とは完全に分けて保存され、クラウドには送信されません。</p>
+          <button id="demoBtn" class="primary-btn" type="button">ダミーデータを作成して見る</button>
+          <button id="exitDemoBtn" class="secondary-btn" type="button" hidden>実データに戻る</button>
+        </div>
+      </section>
       <section class="section-block"><div class="section-heading"><h2>登録済みのジム・マシン</h2><button id="addMachineFromSettings" class="text-btn">追加</button></div><div id="machineLibrary" class="machine-library"></div></section>
     </section>
   </main>
