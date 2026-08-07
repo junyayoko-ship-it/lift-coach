@@ -49,6 +49,7 @@
         <div><small>現在のジム</small><strong id="currentGymName">未設定</strong></div>
         <button id="changeGymBtn" class="text-btn">変更</button>
       </div>
+      <button id="finishWorkoutBtn" class="finish-workout-btn">今日のトレーニングを終了</button>
 
       <section class="section-block">
         <div class="section-heading"><div><span class="eyebrow">STEP 1</span><h2>部位を選ぶ</h2></div><span class="muted">自由に選択</span></div>
@@ -56,7 +57,7 @@
       </section>
 
       <section id="exerciseSection" class="section-block" hidden>
-        <div class="section-heading"><div><span class="eyebrow">STEP 2</span><h2>種目を選ぶ</h2></div></div>
+        <div class="section-heading"><div><span class="eyebrow">STEP 2</span><h2>種目を選ぶ</h2></div><button id="addExerciseBtn" class="text-btn">＋ 種目追加</button></div>
         <input id="exerciseSearch" class="search" type="search" placeholder="種目名や器具で検索">
         <div id="balanceHint" class="coach-note" hidden></div>
         <div id="exerciseList" class="exercise-list"></div>
@@ -107,6 +108,29 @@
         <input id="newMachineMaker" placeholder="メーカー・型番（任意）">
         <input id="newMachineNote" placeholder="目印・補足（任意）">
         <button id="saveMachineBtn" type="button" class="primary-btn">このマシンを登録して使う</button>
+      </div>
+      <div id="variationFields" class="variation-fields" hidden>
+        <span class="eyebrow">実施方法</span>
+        <strong id="variationMachineName"></strong>
+        <label class="field-label" for="executionVariantInput">同じマシンでも方法が違えば分けて記録します</label>
+        <input id="executionVariantInput" list="executionVariantList" placeholder="例：標準（両手）/ ワンハンド">
+        <datalist id="executionVariantList"></datalist>
+        <button id="startWithVariationBtn" type="button" class="primary-btn">この方法で始める</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="exerciseDialog" class="sheet">
+    <form id="exerciseForm" class="sheet-content">
+      <div class="sheet-handle"></div><div class="section-heading"><div><span class="eyebrow">CUSTOM EXERCISE</span><h2>種目を追加</h2></div><button id="closeExerciseBtn" type="button" class="icon-btn" aria-label="閉じる">×</button></div>
+      <div class="stack">
+        <label class="field-label" for="customExerciseName">種目名</label><input id="customExerciseName" required placeholder="例：ワンハンドチェストプレス">
+        <label class="field-label" for="customBodypart">主な部位</label><select id="customBodypart"></select>
+        <label class="field-label" for="customEquipment">器具</label><select id="customEquipment"><option value="Machine">Machine</option><option value="Cable">Cable</option><option value="DB">DB</option><option value="BB">BB</option><option value="BW">自重</option><option value="Other">その他</option></select>
+        <label class="field-label" for="customRange">刺激位置</label><select id="customRange"><option value="Stretch">Stretch</option><option value="Mid" selected>Mid</option><option value="Contract">Contract</option></select>
+        <label class="field-label" for="customPattern">動作パターン（任意）</label><input id="customPattern" placeholder="例：Press / Fly / Row">
+        <label class="field-label" for="customStep">重量の刻み</label><input id="customStep" type="number" value="2.5" step="0.5" min="0.5">
+        <button type="submit" class="primary-btn">種目を登録</button>
       </div>
     </form>
   </dialog>
