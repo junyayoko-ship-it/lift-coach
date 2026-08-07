@@ -1,4 +1,4 @@
-const API_URL = "https://script.google.com/macros/s/AKfycbwoEqusw52NrIIbNe14XqFs5GXgs_QH6jSTmELemtRqXa6z5-stcsHImVIrm2iIg2bn/exec";
+const DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycbwNtRY7ESule5SZg44O4pM6PX5AosyAjQxSQarrQsBGHGhuWhAoFIYuTE9HPEU2dF6jzQ/exec";
 const STORE = {
   profile: "liftcoach_profile_v2",
   gyms: "liftcoach_gyms_v2",
@@ -7,7 +7,13 @@ const STORE = {
   activeWorkout: "liftcoach_active_workout_v2",
   completedWorkouts: "liftcoach_completed_workouts_v2",
   sets: "liftcoach_sets_v2",
-  queue: "liftcoach_offline_queue_v2"
+  queue: "liftcoach_offline_queue_v2",
+  syncUrl: "liftcoach_sync_url_v2",
+  lastSync: "liftcoach_last_sync_v2",
+  demoMode: "liftcoach_demo_mode_v2",
+  demoSets: "liftcoach_demo_sets_v2",
+  demoActiveWorkout: "liftcoach_demo_active_workout_v2",
+  demoCompletedWorkouts: "liftcoach_demo_completed_workouts_v2"
 };
 
 const BODY_PARTS = ["胸上部", "胸中部", "胸下部", "肩前", "肩中", "肩後", "広背筋", "僧帽筋", "2頭", "3頭", "4頭", "ハム", "お尻", "カーフ"];
@@ -44,14 +50,18 @@ const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem(k
 const write = (key, value) => localStorage.setItem(key, JSON.stringify(value));
 const uid = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
+const initialDemoMode = read(STORE.demoMode, false);
 let state = {
   profile: read(STORE.profile, null),
   gyms: read(STORE.gyms, []),
   machines: read(STORE.machines, []),
   customExercises: read(STORE.customExercises, []),
-  activeWorkout: read(STORE.activeWorkout, null),
-  completedWorkouts: read(STORE.completedWorkouts, []),
-  sets: read(STORE.sets, []),
+  activeWorkout: read(initialDemoMode ? STORE.demoActiveWorkout : STORE.activeWorkout, null),
+  completedWorkouts: read(initialDemoMode ? STORE.demoCompletedWorkouts : STORE.completedWorkouts, []),
+  sets: read(initialDemoMode ? STORE.demoSets : STORE.sets, []),
+  syncUrl: read(STORE.syncUrl, DEFAULT_API_URL),
+  lastSync: read(STORE.lastSync, ""),
+  demoMode: initialDemoMode,
   bodypart: "",
   exercise: null,
   machine: null,
@@ -65,9 +75,12 @@ function persist() {
   write(STORE.gyms, state.gyms);
   write(STORE.machines, state.machines);
   write(STORE.customExercises, state.customExercises);
-  write(STORE.activeWorkout, state.activeWorkout);
-  write(STORE.completedWorkouts, state.completedWorkouts);
-  write(STORE.sets, state.sets);
+  write(state.demoMode ? STORE.demoActiveWorkout : STORE.activeWorkout, state.activeWorkout);
+  write(state.demoMode ? STORE.demoCompletedWorkouts : STORE.completedWorkouts, state.completedWorkouts);
+  write(state.demoMode ? STORE.demoSets : STORE.sets, state.sets);
+  write(STORE.syncUrl, state.syncUrl);
+  write(STORE.lastSync, state.lastSync);
+  write(STORE.demoMode, state.demoMode);
 }
 
 function allExercises() {
@@ -82,8 +95,10 @@ function localDateKey(date = new Date()) {
 }
 
 function migrateSetHistory() {
+  if (state.profile && !state.profile.user_id) state.profile.user_id = uid("USER");
   const workouts = new Map();
   state.sets.forEach((set) => {
+    if (!set.user_id || set.user_id === "local-user") set.user_id = state.profile?.user_id || "local-user";
     if (!set.workout_id) set.workout_id = `W-${localDateKey(new Date(set.timestamp))}`;
     if (set.equipment_variant_id && !set.execution_variant) set.execution_variant = "標準（両手）";
     const method = set.equipment_variant_id ? String(set.execution_variant || "標準").trim().toLowerCase() : "";
@@ -315,154 +330,7 @@ function renderSetSession() {
   $("weightInput").value = rec.weight;
   $("repsInput").value = rec.reps;
   $("saveSetBtn").textContent = `セット${current.length + 1}を保存`;
-  document.querySelectorAll("input[name='rir']").forEach((input) => input.checked = false);
-  $("painFields").hidden = true; $("painArea").value = ""; $("painScore").value = 1; $("painOutput").value = 1; $("setError").textContent = "";
-}
-
-function describeProgress(saved, previous) {
-  if (!previous) return "この条件の基準記録になりました。";
-  if (saved.weight > previous.weight && saved.reps >= previous.reps) return `前回より${saved.weight - previous.weight}kgアップ。`;
-  if (saved.weight === previous.weight && saved.reps > previous.reps) return `前回より${saved.reps - previous.reps}回アップ。`;
-  if (saved.weight === previous.weight && saved.reps === previous.reps && saved.rir !== "" && previous.rir !== "" && Number(saved.rir) > Number(previous.rir)) return "同じ内容でRIRに余裕が増えました。";
-  if (saved.weight * saved.reps > previous.weight * previous.reps) return "重量×回数が前回を上回りました。";
-  return "記録しました。次回も同じ条件で比較できます。";
-}
-
-function saveSet(event) {
-  event.preventDefault();
-  const weight = Number($("weightInput").value);
-  const reps = Number($("repsInput").value);
-  if (!Number.isFinite(weight) || weight < 0 || !Number.isInteger(reps) || reps < 1) {
-    $("setError").textContent = "重量と回数を確認してください。"; return;
-  }
-  const setNumber = currentWorkoutSets(state.exercise, state.machine?.id).length + 1;
-  const exerciseOrder = currentExerciseOrder(state.exercise, state.machine?.id);
-  const previousSession = previousWorkoutSets(state.exercise, state.machine?.id, exerciseOrder);
-  const previous = previousSession[setNumber - 1] || null;
-  const selectedRir = document.querySelector("input[name='rir']:checked");
-  const set = {
-    set_id: uid("S"), timestamp: new Date().toISOString(), user_id: "local-user",
-    workout_id: currentWorkoutId(), exercise_order: exerciseOrder, set_no: setNumber,
-    exercise_id: state.exercise.exercise_id, exercise_name: state.exercise.exercise_name,
-    bodypart_ui: state.exercise.bodypart_ui, anatomical_target: state.exercise.anatomical_target,
-    pattern: state.exercise.pattern, range_type: state.exercise.range_type, equipment_cat: state.exercise.equipment_cat,
-    gym_id: currentGym()?.id || "", gym_name: currentGym()?.name || "",
-    equipment_variant_id: state.machine?.id || "", equipment_variant: state.machine?.name || "",
-    execution_variant: state.executionVariant || "",
-    comparison_key: comparisonKey(state.exercise, state.machine?.id, state.executionVariant),
-    weight, reps, rir: selectedRir ? Number(selectedRir.value) : "",
-    pain_area: $("painFields").hidden ? "" : $("painArea").value.trim(),
-    pain_score: $("painFields").hidden ? "" : Number($("painScore").value),
-    goal: state.profile?.goal || "hypertrophy", set_style: "Normal"
-  };
-  state.sets.unshift(set); state.lastSaved = set; persist();
-  queueRemote(set);
-  renderSetSession();
-  showToast("セットを保存しました", describeProgress(set, previous), true);
-  renderExercises(); updateQueueUI();
-}
-
-async function postToGAS(payload) {
-  const response = await fetch(`${API_URL}?origin=${encodeURIComponent(location.origin)}`, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload), redirect: "follow" });
-  const text = await response.text(); let json = {}; try { json = JSON.parse(text); } catch {}
-  if (!response.ok || json.ok === false) throw new Error(json.error || `HTTP ${response.status}`);
-  return json;
-}
-
-function queueRemote(set) {
-  const queue = read(STORE.queue, []);
-  queue.push({ action: "append_set_log", data: set }); write(STORE.queue, queue);
-  if (navigator.onLine) flushQueue();
-}
-
-async function flushQueue() {
-  if (!navigator.onLine) return;
-  const queue = read(STORE.queue, []); if (!queue.length) return;
-  const failed = [];
-  for (const item of queue) { try { await postToGAS(item); } catch { failed.push(item); } }
-  write(STORE.queue, failed); updateQueueUI();
-}
-
-function updateQueueUI() {
-  const count = read(STORE.queue, []).length;
-  $("queueBadge").hidden = count === 0;
-  $("queueBadge").textContent = `未送信 ${count}`;
-  $("netBadge").textContent = navigator.onLine ? "オンライン" : "オフライン";
-  $("netBadge").className = `status-pill ${navigator.onLine ? "online" : "offline"}`;
-}
-
-function showToast(title, message, canUndo = false) {
-  $("toastTitle").textContent = title; $("toastMessage").textContent = message; $("undoBtn").hidden = !canUndo; $("toast").hidden = false;
-  clearTimeout(showToast.timer); showToast.timer = setTimeout(() => $("toast").hidden = true, 6500);
-}
-
-function undoLast() {
-  if (!state.lastSaved) return;
-  state.sets = state.sets.filter((set) => set.set_id !== state.lastSaved.set_id);
-  const queue = read(STORE.queue, []).filter((item) => item.data?.set_id !== state.lastSaved.set_id);
-  write(STORE.queue, queue); state.lastSaved = null; persist(); updateQueueUI();
-  if ($("setDialog").open && state.exercise) renderSetSession();
-  showToast("取り消しました", "最後のセットを記録から削除しました。", false);
-}
-
-function addDays(date, days) {
-  const next = new Date(date); next.setDate(next.getDate() + days); return next;
-}
-
-function setsBetween(start, end) {
-  return state.sets.filter((set) => { const date = new Date(set.timestamp); return date >= start && date < end; });
-}
-
-function summarizeBodyparts(sets) {
-  return sets.reduce((summary, set) => {
-    if (!summary[set.bodypart_ui]) summary[set.bodypart_ui] = { sets: 0, volume: 0, workouts: new Set() };
-    const item = summary[set.bodypart_ui]; item.sets += 1; item.volume += Number(set.weight) * Number(set.reps); item.workouts.add(set.workout_id);
-    return summary;
-  }, {});
-}
-
-function exerciseSessionGroups() {
-  const byKey = new Map();
-  state.sets.forEach((set) => {
-    const contextKey = `${set.comparison_key}|order:${set.exercise_order || 0}`;
-    const sessionKey = `${contextKey}|workout:${set.workout_id}`;
-    if (!byKey.has(contextKey)) byKey.set(contextKey, new Map());
-    const sessions = byKey.get(contextKey);
-    if (!sessions.has(sessionKey)) sessions.set(sessionKey, []);
-    sessions.get(sessionKey).push(set);
-  });
-  return [...byKey.values()].map((sessions) => [...sessions.values()].sort((a, b) => new Date(b[0].timestamp) - new Date(a[0].timestamp)));
-}
-
-function compareExerciseSessions() {
-  return exerciseSessionGroups().filter((sessions) => sessions.length >= 2).map((sessions) => {
-    const latest = sessions[0]; const previous = sessions[1];
-    const metrics = (sets) => ({
-      maxWeight: Math.max(...sets.map((set) => Number(set.weight))),
-      totalReps: sets.reduce((sum, set) => sum + Number(set.reps), 0),
-      volume: sets.reduce((sum, set) => sum + Number(set.weight) * Number(set.reps), 0)
-    });
-    const now = metrics(latest); const before = metrics(previous);
-    let status = "maintained";
-    if ((now.maxWeight > before.maxWeight && now.totalReps >= before.totalReps * 0.85) || (now.maxWeight === before.maxWeight && now.totalReps > before.totalReps) || now.volume > before.volume * 1.05) status = "improved";
-    else if (now.volume < before.volume * 0.85) status = "review";
-    return { status, latest, previous, now, before };
-  });
-}
-
-function renderWeeklyReview() {
-  const start = weekStart(); const end = addDays(start, 7); const previousStart = addDays(start, -7);
-  const currentSets = setsBetween(start, end); const previousSets = setsBetween(previousStart, start);
-  const current = summarizeBodyparts(currentSets); const previous = summarizeBodyparts(previousSets);
-  $("weekRange").textContent = `${start.getMonth() + 1}/${start.getDate()}〜${addDays(end, -1).getMonth() + 1}/${addDays(end, -1).getDate()}`;
-  const comparisons = compareExerciseSessions().filter((item) => new Date(item.latest[0].timestamp) >= start);
-  const improved = comparisons.filter((item) => item.status === "improved");
-  const review = comparisons.filter((item) => item.status === "review");
-  const pain = currentSets.filter((set) => Number(set.pain_score || 0) >= 3);
-  const insights = [];
-  if (!currentSets.length) insights.push({ tone: "neutral", title: "今週はまだ記録がありません", text: "最初のセットを保存すると、ここに週次分析が表示されます。" });
-  else if (!previousSets.length) insights.push({ tone: "neutral", title: "今週を基準週として記録中", text: `${currentSets.length}セットを保存しました。来週から同条件で比較できます。` });
-  if (improved.length) insights.push({ tone: "good", title: `${improved.length}条件で向上`, text: improved.slice(0, 3).map((item) => item.latest[0].exercise_name).join("、") + "で重量・回数・総負荷量のいずれかが改善しました。" });
+  document.querySel…2629 tokens truncated…itle: `${improved.length}条件で向上`, text: improved.slice(0, 3).map((item) => item.latest[0].exercise_name).join("、") + "で重量・回数・総負荷量のいずれかが改善しました。" });
   if (review.length) insights.push({ tone: "warn", title: `${review.length}条件を要確認`, text: "前回より総負荷量が15%以上低下しています。種目順、疲労、フォーム、体調を確認しましょう。" });
   if (pain.length) insights.push({ tone: "danger", title: "痛みの記録があります", text: `${pain.map((set) => set.pain_area || set.bodypart_ui).filter((value, index, array) => array.indexOf(value) === index).join("、")}の重量アップは保留候補です。` });
   if (previousSets.length && currentSets.length >= previousSets.length * 1.5 && currentSets.length - previousSets.length >= 4) insights.push({ tone: "warn", title: "セット数が大きく増えています", text: `前週${previousSets.length}セットから今週${currentSets.length}セットです。回復状態も確認してください。` });
@@ -495,8 +363,99 @@ function renderHistory() {
   }).join("") : `<div class="empty-state">まだ記録がありません。最初のセットを保存してみましょう。</div>`;
 }
 
+function generateDemoSets() {
+  const routines = [
+    ["bench-press", "incline-db-press", "pec-fly-machine", "db-lateral-raise", "cable-pushdown"],
+    ["lat-pulldown", "seated-row", "reverse-pec-deck", "barbell-curl", "db-shrug"],
+    ["leg-press", "rdl", "leg-extension", "leg-curl", "calf-raise"],
+    ["incline-db-press", "bench-press", "shoulder-press-machine", "cable-lateral-raise", "preacher-curl-machine"]
+  ];
+  const baseWeights = { "bench-press": 60, "incline-db-press": 20, "pec-fly-machine": 40, "db-lateral-raise": 8, "cable-pushdown": 25, "lat-pulldown": 50, "seated-row": 45, "reverse-pec-deck": 30, "barbell-curl": 25, "db-shrug": 24, "leg-press": 120, rdl: 70, "leg-extension": 45, "leg-curl": 40, "calf-raise": 60, "shoulder-press-machine": 35, "cable-lateral-raise": 7.5, "preacher-curl-machine": 25 };
+  const schedule = [0, 1, 3, 5];
+  const start = addDays(weekStart(), -77);
+  const cutoff = new Date(); cutoff.setHours(0, 0, 0, 0);
+  const result = [];
+  for (let week = 0; week < 12; week += 1) {
+    schedule.forEach((dayOffset, dayIndex) => {
+      const date = addDays(start, week * 7 + dayOffset); date.setHours(18, 10, 0, 0);
+      if (date >= cutoff) return;
+      let ids = [...routines[dayIndex]];
+      if (dayIndex === 0 && week % 3 === 1) ids = [ids[2], ids[0], ids[1], ids[3], ids[4]];
+      const workoutId = `DEMO-W-${localDateKey(date)}-${dayIndex + 1}`;
+      ids.forEach((exerciseId, exerciseIndex) => {
+        const exercise = EXERCISES.find((item) => item.exercise_id === exerciseId); if (!exercise) return;
+        const isMachine = ["Machine", "Cable"].includes(exercise.equipment_cat);
+        const machineId = isMachine ? `DEMO-M-${exercise.equipment_cat.toUpperCase()}-${exerciseId}` : "";
+        const machineName = isMachine ? `${exercise.exercise_name} 1号機` : "";
+        const step = Number(exercise.step_kg || 2.5);
+        const deload = week === 7 ? -step * 2 : 0;
+        const progressed = baseWeights[exerciseId] + Math.floor(week / 3) * step + deload;
+        for (let setNo = 1; setNo <= 3; setNo += 1) {
+          const timestamp = new Date(date); timestamp.setMinutes(date.getMinutes() + exerciseIndex * 14 + setNo * 3);
+          const reps = Math.max(6, 12 - (week % 3) - (setNo - 1) + (week >= 9 ? 1 : 0));
+          const execution = isMachine ? "標準（両手）" : "";
+          result.push({
+            set_id: `DEMO-S-${week}-${dayIndex}-${exerciseIndex}-${setNo}`, timestamp: timestamp.toISOString(), user_id: "demo-user",
+            workout_id: workoutId, exercise_order: exerciseIndex + 1, set_no: setNo,
+            exercise_id: exercise.exercise_id, exercise_name: exercise.exercise_name, bodypart_ui: exercise.bodypart_ui,
+            anatomical_target: exercise.anatomical_target, pattern: exercise.pattern, range_type: exercise.range_type, equipment_cat: exercise.equipment_cat,
+            gym_id: "DEMO-GYM", gym_name: "サンプルジム", equipment_variant_id: machineId, equipment_variant: machineName,
+            execution_variant: execution, comparison_key: `${exercise.exercise_id}|${machineId || exercise.equipment_cat}|${execution.toLowerCase()}`,
+            weight: Math.max(0, progressed), reps, rir: setNo === 3 ? 1 : 2,
+            pain_area: week === 5 && dayIndex === 0 && exerciseIndex === 3 && setNo === 3 ? "右肩" : "",
+            pain_score: week === 5 && dayIndex === 0 && exerciseIndex === 3 && setNo === 3 ? 3 : "",
+            goal: "hypertrophy", set_style: "Normal", is_demo: true
+          });
+        }
+      });
+    });
+  }
+  return result.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+}
+
+function enterDemoMode() {
+  state.demoMode = true; state.sets = generateDemoSets(); state.activeWorkout = null;
+  state.completedWorkouts = [...new Set(state.sets.map((set) => set.workout_id))];
+  state.bodypart = ""; state.exercise = null; state.machine = null; state.executionVariant = "";
+  persist(); renderBodyparts(); renderProfile(); renderSettings(); showView("history");
+  showToast("ダミーデータを作成しました", `${state.sets.length}セット・12週間分を表示しています。`, false);
+}
+
+function exitDemoMode() {
+  state.demoMode = false; state.sets = read(STORE.sets, []); state.activeWorkout = read(STORE.activeWorkout, null);
+  state.completedWorkouts = read(STORE.completedWorkouts, []); write(STORE.demoMode, false);
+  state.bodypart = ""; state.exercise = null; state.machine = null; state.executionVariant = "";
+  migrateSetHistory(); renderBodyparts(); renderProfile(); renderSettings(); showView("history");
+  showToast("実データに戻りました", `${state.sets.length}セットの記録を表示しています。`, false);
+}
+
+function exportBackup() {
+  const backup = { version: 2, exported_at: new Date().toISOString(), profile: state.profile, gyms: state.gyms, machines: state.machines, custom_exercises: state.customExercises, sets: state.sets, completed_workouts: state.completedWorkouts };
+  const url = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }));
+  const anchor = document.createElement("a"); anchor.href = url; anchor.download = `lift-coach-backup-${localDateKey()}.json`; anchor.click(); URL.revokeObjectURL(url);
+}
+
+async function importBackup(file) {
+  if (state.demoMode) { showToast("実データに戻ってください", "ダミーモード中は復元できません。", false); return; }
+  try {
+    const backup = JSON.parse(await file.text());
+    if (!Array.isArray(backup.sets)) throw new Error("setsが見つかりません");
+    mergeSets(backup.sets);
+    if (Array.isArray(backup.gyms)) state.gyms = backup.gyms;
+    if (Array.isArray(backup.machines)) state.machines = backup.machines;
+    if (Array.isArray(backup.custom_exercises)) state.customExercises = backup.custom_exercises;
+    if (Array.isArray(backup.completed_workouts)) state.completedWorkouts = [...new Set([...state.completedWorkouts, ...backup.completed_workouts])];
+    persist(); migrateSetHistory(); renderSettings();
+    showToast("バックアップを復元しました", `${state.sets.length}セットを読み込みました。`, false);
+  } catch (error) { showToast("復元できませんでした", error.message || "JSONファイルを確認してください。", false); }
+}
+
 function renderSettings() {
   $("settingsName").value = state.profile?.name || ""; $("settingsGoal").value = state.profile?.goal || "hypertrophy";
+  $("syncUrl").value = state.syncUrl || "";
+  $("syncState").textContent = state.demoMode ? "同期停止中" : state.lastSync ? `最終 ${formatDate(state.lastSync)}` : state.syncUrl ? "未同期" : "未設定";
+  $("demoState").hidden = !state.demoMode; $("exitDemoBtn").hidden = !state.demoMode;
+  $("demoBtn").textContent = state.demoMode ? "ダミーデータを作り直す" : "ダミーデータを作成して見る";
   $("machineLibrary").innerHTML = state.gyms.length ? state.gyms.map((gym) => `<div class="library-group"><strong>${gym.name}</strong>${state.machines.filter((machine) => machine.gym_id === gym.id).map((machine) => `<div><span>${machine.name}</span><small>${machine.maker || "登録済み"}</small></div>`).join("") || `<small>マシン未登録</small>`}</div>`).join("") : `<div class="empty-state">ジムとマシンは、トレーニング画面から登録できます。</div>`;
 }
 
@@ -535,7 +494,7 @@ function saveCustomExercise(event) {
 function bindEvents() {
   $("onboardingForm").addEventListener("submit", (event) => {
     event.preventDefault(); const data = new FormData(event.currentTarget);
-    state.profile = { name: $("displayName").value.trim(), goal: data.get("goal"), currentGymId: "" }; persist();
+    state.profile = { user_id: uid("USER"), name: $("displayName").value.trim(), goal: data.get("goal"), currentGymId: "" }; persist();
     $("onboardingView").hidden = true; $("trainView").hidden = false; document.querySelector(".bottom-nav").hidden = false; $("greeting").textContent = "今日は何を鍛える？"; renderProfile();
   });
   document.querySelectorAll("input[name='goal']").forEach((radio) => radio.addEventListener("change", () => document.querySelectorAll(".choice-card").forEach((card) => card.classList.toggle("selected", card.querySelector("input").checked))));
@@ -564,13 +523,24 @@ function bindEvents() {
   $("painScore").addEventListener("input", () => $("painOutput").value = $("painScore").value);
   $("setForm").addEventListener("submit", saveSet); $("undoBtn").addEventListener("click", undoLast);
   $("saveSettingsBtn").addEventListener("click", () => { state.profile.name = $("settingsName").value.trim(); state.profile.goal = $("settingsGoal").value; persist(); renderProfile(); showToast("設定を保存しました", `目標：${goalLabel(state.profile.goal)}`); });
+  $("saveSyncBtn").addEventListener("click", () => {
+    const url = $("syncUrl").value.trim();
+    if (url && (!url.startsWith("https://script.google.com/") || !url.endsWith("/exec"))) { showToast("URLを確認してください", "Apps Scriptでデプロイした /exec で終わるURLを入力してください。", false); return; }
+    state.syncUrl = url; persist(); renderSettings(); showToast("同期設定を保存しました", url ? "「今すぐ同期」で接続を確認できます。" : "クラウド同期を停止しました。", false);
+  });
+  $("syncNowBtn").addEventListener("click", () => syncNow());
+  $("exportBtn").addEventListener("click", exportBackup);
+  $("importBtn").addEventListener("click", () => $("importFile").click());
+  $("importFile").addEventListener("change", (event) => { const [file] = event.target.files; if (file) importBackup(file); event.target.value = ""; });
+  $("demoBtn").addEventListener("click", enterDemoMode);
+  $("exitDemoBtn").addEventListener("click", exitDemoMode);
   $("addMachineFromSettings").addEventListener("click", () => { showView("train"); openGymDialog(); });
-  window.addEventListener("online", () => { updateQueueUI(); flushQueue(); }); window.addEventListener("offline", updateQueueUI);
+  window.addEventListener("online", () => { updateQueueUI(); syncNow({ silent: true }); }); window.addEventListener("offline", updateQueueUI);
 }
 
 document.addEventListener("DOMContentLoaded", () => {
   if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register("./service-worker.js").catch(() => {});
   renderBodyparts(); renderProfile(); updateQueueUI(); bindEvents();
   if (!state.profile) { $("onboardingView").hidden = false; $("trainView").hidden = true; document.querySelector(".bottom-nav").hidden = true; }
-  else { document.querySelector(".bottom-nav").hidden = false; flushQueue(); }
+  else { document.querySelector(".bottom-nav").hidden = false; syncNow({ silent: true }); }
 });
