@@ -79,6 +79,10 @@ function currentGym() {
   return state.gyms.find((gym) => gym.id === state.profile?.currentGymId) || null;
 }
 
+function currentWorkoutId() {
+  return `W-${new Date().toISOString().slice(0, 10)}`;
+}
+
 function comparisonKey(exercise, machineId = "") {
   return `${exercise.exercise_id}|${machineId || exercise.equipment_cat}`;
 }
@@ -86,6 +90,28 @@ function comparisonKey(exercise, machineId = "") {
 function comparableSets(exercise, machineId = "") {
   const key = comparisonKey(exercise, machineId);
   return state.sets.filter((set) => set.comparison_key === key).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+}
+
+function currentWorkoutSets(exercise, machineId = "") {
+  return comparableSets(exercise, machineId)
+    .filter((set) => set.workout_id === currentWorkoutId())
+    .sort((a, b) => Number(a.set_no || 0) - Number(b.set_no || 0));
+}
+
+function currentExerciseOrder(exercise, machineId = "") {
+  const existing = currentWorkoutSets(exercise, machineId);
+  if (existing.length && existing[0].exercise_order) return Number(existing[0].exercise_order);
+  const today = state.sets.filter((set) => set.workout_id === currentWorkoutId());
+  return Math.max(0, ...today.map((set) => Number(set.exercise_order || 0))) + 1;
+}
+
+function previousWorkoutSets(exercise, machineId = "", preferredOrder = null) {
+  const previous = comparableSets(exercise, machineId).filter((set) => set.workout_id !== currentWorkoutId());
+  if (!previous.length) return [];
+  const sameOrder = preferredOrder ? previous.filter((set) => Number(set.exercise_order || 0) === Number(preferredOrder)) : [];
+  const source = sameOrder.length ? sameOrder : previous;
+  const previousWorkoutId = source[0].workout_id;
+  return source.filter((set) => set.workout_id === previousWorkoutId).sort((a, b) => Number(a.set_no || 0) - Number(b.set_no || 0));
 }
 
 function bestRecentSet(items) {
@@ -112,6 +138,16 @@ function recommendation(previous, exercise) {
     return { weight: nextWeight, reps: range[0], text: `下限未達で余裕も少なめ。${nextWeight}kgへの調整候補です。` };
   }
   return { weight: previous.weight, reps: Math.min(previous.reps + 1, range[1]), text: `同じ重量で前回より1回多く、${Math.min(previous.reps + 1, range[1])}回を狙いましょう。` };
+}
+
+function nextSetRecommendation(lastSet) {
+  const goal = state.profile?.goal || "hypertrophy";
+  const range = goal === "strength" ? [4, 8] : goal === "balanced" ? [6, 10] : [8, 12];
+  return {
+    weight: lastSet.weight,
+    reps: lastSet.reps,
+    text: `同じ${lastSet.weight}kgで${range[0]}〜${range[1]}回。疲労による回数低下もそのまま記録しましょう。`
+  };
 }
 
 function showView(name) {
@@ -145,7 +181,8 @@ function renderExercises() {
   $("exerciseList").innerHTML = items.map((ex) => {
     const histories = state.sets.filter((set) => set.exercise_id === ex.exercise_id);
     const last = histories.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
-    return `<button class="exercise-card" data-exercise="${ex.exercise_id}"><div><span class="equipment-tag">${ex.equipment_cat}</span><strong>${ex.exercise_name}</strong><small>${ex.range_type} ・ ${ex.pattern}</small></div><div class="exercise-last">${last ? `<small>前回</small><strong>${last.weight}kg × ${last.reps}</strong>` : "初回"}<span>›</span></div></button>`;
+    const todayCount = histories.filter((set) => set.workout_id === currentWorkoutId()).length;
+    return `<button class="exercise-card" data-exercise="${ex.exercise_id}"><div><span class="equipment-tag">${ex.equipment_cat}</span><strong>${ex.exercise_name}</strong><small>${ex.range_type} ・ ${ex.pattern}</small></div><div class="exercise-last">${todayCount ? `<small>今日</small><strong>${todayCount}セット</strong>` : last ? `<small>直近</small><strong>${last.weight}kg × ${last.reps}</strong>` : "初回"}<span>›</span></div></button>`;
   }).join("") || `<div class="empty-state">該当する種目がありません。</div>`;
   const counts = weeklyCounts();
   const count = counts[state.bodypart] || 0;
@@ -185,20 +222,36 @@ function openMachineDialog(exercise) {
 }
 
 function openSetDialog() {
+  renderSetSession();
+  $("setDialog").showModal();
+}
+
+function setRows(items) {
+  return items.map((set, index) => `<div class="set-row"><span>SET ${index + 1}</span><strong>${set.weight}kg × ${set.reps}回</strong><small>${set.rir !== "" ? `RIR ${set.rir}` : ""}</small></div>`).join("");
+}
+
+function renderSetSession() {
   const exercise = state.exercise;
-  const history = comparableSets(exercise, state.machine?.id);
-  const previous = bestRecentSet(history.slice(0, 5));
-  const rec = recommendation(previous, exercise);
-  $("setBodypart").textContent = exercise.bodypart_ui;
+  const current = currentWorkoutSets(exercise, state.machine?.id);
+  const exerciseOrder = currentExerciseOrder(exercise, state.machine?.id);
+  const previous = previousWorkoutSets(exercise, state.machine?.id, exerciseOrder);
+  const previousBest = bestRecentSet(previous);
+  const rec = current.length ? nextSetRecommendation(current[current.length - 1]) : recommendation(previousBest, exercise);
+  $("setBodypart").textContent = `${exercise.bodypart_ui} ・ 今日${exerciseOrder}種目目`;
   $("setExerciseName").textContent = exercise.exercise_name;
   $("setMachineName").textContent = state.machine ? `${currentGym()?.name} ・ ${state.machine.name}` : exercise.equipment_cat;
-  $("previousCard").innerHTML = previous ? `<span>同じ条件の前回</span><strong>${previous.weight}kg × ${previous.reps}回${previous.rir !== "" ? ` ・ RIR ${previous.rir}` : ""}</strong><small>${formatDate(previous.timestamp)}</small>` : `<span>同じ条件の履歴</span><strong>初回</strong><small>軽めの重量で感触を確認しましょう</small>`;
-  $("recommendationCard").innerHTML = `<span>今回の目安</span><strong>${rec.weight !== "" ? `${rec.weight}kg × ` : ""}${rec.reps}回から</strong><small>${rec.text}</small>`;
+  const previousTotal = previous.reduce((sum, set) => sum + Number(set.reps), 0);
+  const previousOrder = previous.length ? Number(previous[0].exercise_order || 0) : 0;
+  const orderNote = previous.length && previousOrder && previousOrder !== exerciseOrder ? `<div class="condition-warning">前回は${previousOrder}種目目、今回は${exerciseOrder}種目目です。疲労条件が異なるため参考値として表示しています。</div>` : "";
+  $("previousCard").innerHTML = previous.length ? `<div class="session-title"><span>前回の全セット ・ ${previousOrder || "順番未記録"}${previousOrder ? "種目目" : ""}</span><small>${formatDate(previous[0].timestamp)} ・ 合計${previousTotal}回</small></div>${setRows(previous)}${orderNote}` : `<span>同じ条件の前回記録</span><strong>なし</strong><small>今日の記録が、このマシン・種目順の基準になります。</small>`;
+  const currentTotal = current.reduce((sum, set) => sum + Number(set.reps), 0);
+  $("currentSessionCard").innerHTML = `<div class="session-title"><span>今日のセット</span><strong>${current.length}セット ・ 合計${currentTotal}回</strong></div>${current.length ? setRows(current) : `<small>まだセットを保存していません。</small>`}`;
+  $("recommendationCard").innerHTML = `<span>${current.length ? "次セットの目安" : "1セット目の目安"}</span><strong>${rec.weight !== "" ? `${rec.weight}kg × ` : ""}${current.length ? `${(state.profile?.goal || "hypertrophy") === "strength" ? "4〜8" : (state.profile?.goal || "hypertrophy") === "balanced" ? "6〜10" : "8〜12"}回` : `${rec.reps}回から`}</strong><small>${rec.text}</small>`;
   $("weightInput").value = rec.weight;
   $("repsInput").value = rec.reps;
+  $("saveSetBtn").textContent = `セット${current.length + 1}を保存`;
   document.querySelectorAll("input[name='rir']").forEach((input) => input.checked = false);
   $("painFields").hidden = true; $("painArea").value = ""; $("painScore").value = 1; $("painOutput").value = 1; $("setError").textContent = "";
-  $("setDialog").showModal();
 }
 
 function describeProgress(saved, previous) {
@@ -217,11 +270,14 @@ function saveSet(event) {
   if (!Number.isFinite(weight) || weight < 0 || !Number.isInteger(reps) || reps < 1) {
     $("setError").textContent = "重量と回数を確認してください。"; return;
   }
-  const previous = comparableSets(state.exercise, state.machine?.id)[0] || null;
+  const setNumber = currentWorkoutSets(state.exercise, state.machine?.id).length + 1;
+  const exerciseOrder = currentExerciseOrder(state.exercise, state.machine?.id);
+  const previousSession = previousWorkoutSets(state.exercise, state.machine?.id, exerciseOrder);
+  const previous = previousSession[setNumber - 1] || null;
   const selectedRir = document.querySelector("input[name='rir']:checked");
   const set = {
     set_id: uid("S"), timestamp: new Date().toISOString(), user_id: "local-user",
-    workout_id: `W-${new Date().toISOString().slice(0, 10)}`,
+    workout_id: currentWorkoutId(), exercise_order: exerciseOrder, set_no: setNumber,
     exercise_id: state.exercise.exercise_id, exercise_name: state.exercise.exercise_name,
     bodypart_ui: state.exercise.bodypart_ui, anatomical_target: state.exercise.anatomical_target,
     pattern: state.exercise.pattern, range_type: state.exercise.range_type, equipment_cat: state.exercise.equipment_cat,
@@ -235,7 +291,7 @@ function saveSet(event) {
   };
   state.sets.unshift(set); state.lastSaved = set; persist();
   queueRemote(set);
-  $("setDialog").close();
+  renderSetSession();
   showToast("セットを保存しました", describeProgress(set, previous), true);
   renderExercises(); updateQueueUI();
 }
@@ -279,6 +335,7 @@ function undoLast() {
   state.sets = state.sets.filter((set) => set.set_id !== state.lastSaved.set_id);
   const queue = read(STORE.queue, []).filter((item) => item.data?.set_id !== state.lastSaved.set_id);
   write(STORE.queue, queue); state.lastSaved = null; persist(); updateQueueUI();
+  if ($("setDialog").open && state.exercise) renderSetSession();
   showToast("取り消しました", "最後のセットを記録から削除しました。", false);
 }
 
@@ -288,7 +345,18 @@ function renderHistory() {
   const volume = weekSets.reduce((sum, set) => sum + set.weight * set.reps, 0);
   const activeParts = new Set(weekSets.map((set) => set.bodypart_ui)).size;
   $("progressSummary").innerHTML = `<div class="metric"><small>今週のセット</small><strong>${weekSets.length}</strong></div><div class="metric"><small>総負荷量</small><strong>${Math.round(volume).toLocaleString()}kg</strong></div><div class="metric"><small>実施部位</small><strong>${activeParts}</strong></div>`;
-  $("historyList").innerHTML = state.sets.length ? state.sets.slice(0, 40).map((set) => `<article class="history-row"><div><span class="equipment-tag">${set.bodypart_ui}</span><strong>${set.exercise_name}</strong><small>${set.equipment_variant ? `${set.gym_name} ・ ${set.equipment_variant}` : set.equipment_cat} ・ ${formatDate(set.timestamp)}</small></div><div><strong>${set.weight}kg × ${set.reps}</strong><small>${set.rir !== "" ? `RIR ${set.rir}` : "RIR未入力"}</small></div></article>`).join("") : `<div class="empty-state">まだ記録がありません。最初のセットを保存してみましょう。</div>`;
+  const groups = [];
+  state.sets.forEach((set) => {
+    const key = `${set.workout_id}|${set.comparison_key}`;
+    let group = groups.find((item) => item.key === key);
+    if (!group) { group = { key, sets: [] }; groups.push(group); }
+    group.sets.push(set);
+  });
+  $("historyList").innerHTML = groups.length ? groups.slice(0, 40).map((group) => {
+    const sets = group.sets.sort((a, b) => Number(a.set_no || 0) - Number(b.set_no || 0));
+    const first = sets[0]; const totalReps = sets.reduce((sum, set) => sum + Number(set.reps), 0);
+    return `<article class="history-session"><div class="history-session-head"><div><span class="equipment-tag">${first.bodypart_ui} ・ ${first.exercise_order || "?"}種目目</span><strong>${first.exercise_name}</strong><small>${first.equipment_variant ? `${first.gym_name} ・ ${first.equipment_variant}` : first.equipment_cat} ・ ${formatDate(first.timestamp)}</small></div><div><strong>${sets.length}セット</strong><small>合計${totalReps}回</small></div></div>${setRows(sets)}</article>`;
+  }).join("") : `<div class="empty-state">まだ記録がありません。最初のセットを保存してみましょう。</div>`;
 }
 
 function renderSettings() {
@@ -311,6 +379,7 @@ function bindEvents() {
   $("closeGymBtn").addEventListener("click", () => $("gymDialog").close());
   $("closeMachineBtn").addEventListener("click", () => $("machineDialog").close());
   $("closeSetBtn").addEventListener("click", () => $("setDialog").close());
+  $("finishExerciseBtn").addEventListener("click", () => { $("setDialog").close(); showToast("種目を終了しました", "今日のセットは進捗画面から確認できます。", false); });
   $("showNewGymBtn").addEventListener("click", () => $("newGymFields").hidden = false);
   $("saveGymBtn").addEventListener("click", () => { const name = $("newGymName").value.trim(); if (!name) return; const gym = { id: uid("GYM"), name }; state.gyms.push(gym); state.profile.currentGymId = gym.id; $("newGymName").value = ""; persist(); renderGyms(); renderProfile(); showToast("ジムを登録しました", name); if (state.exercise?.equipment_cat === "Machine") { $("gymDialog").close(); openMachineDialog(state.exercise); } });
   $("gymList").addEventListener("click", (event) => { const button = event.target.closest("[data-gym]"); if (!button) return; state.profile.currentGymId = button.dataset.gym; persist(); renderProfile(); $("gymDialog").close(); });
