@@ -116,6 +116,7 @@
       <div class="sheet-handle"></div>
       <div class="section-heading"><div><span id="setBodypart" class="eyebrow"></span><h2 id="setExerciseName"></h2><p id="setMachineName" class="muted"></p></div><button id="closeSetBtn" type="button" class="icon-btn" aria-label="閉じる">×</button></div>
       <div id="previousCard" class="previous-card"></div>
+      <div id="currentSessionCard" class="session-card"></div>
       <div id="recommendationCard" class="recommendation-card"></div>
       <div class="number-grid">
         <div class="number-control"><label>重量 <small>kg</small></label><div><button type="button" data-adjust="weight" data-delta="-2.5">−</button><input id="weightInput" type="number" inputmode="decimal" step="0.5" min="0"><button type="button" data-adjust="weight" data-delta="2.5">＋</button></div></div>
@@ -125,7 +126,8 @@
       <button id="togglePainBtn" type="button" class="text-btn left">＋ 痛み・違和感を記録</button>
       <div id="painFields" class="pain-fields" hidden><input id="painArea" placeholder="痛む場所"><label>強さ <output id="painOutput">1</output>/5<input id="painScore" type="range" min="1" max="5" value="1"></label></div>
       <p id="setError" class="error" role="alert"></p>
-      <button id="saveSetBtn" type="submit" class="primary-btn large">セットを保存</button>
+      <button id="saveSetBtn" type="submit" class="primary-btn large">セット1を保存</button>
+      <button id="finishExerciseBtn" type="button" class="secondary-btn">この種目を終了</button>
     </form>
   </dialog>
 
