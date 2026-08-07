@@ -405,12 +405,82 @@ function undoLast() {
   showToast("取り消しました", "最後のセットを記録から削除しました。", false);
 }
 
+function addDays(date, days) {
+  const next = new Date(date); next.setDate(next.getDate() + days); return next;
+}
+
+function setsBetween(start, end) {
+  return state.sets.filter((set) => { const date = new Date(set.timestamp); return date >= start && date < end; });
+}
+
+function summarizeBodyparts(sets) {
+  return sets.reduce((summary, set) => {
+    if (!summary[set.bodypart_ui]) summary[set.bodypart_ui] = { sets: 0, volume: 0, workouts: new Set() };
+    const item = summary[set.bodypart_ui]; item.sets += 1; item.volume += Number(set.weight) * Number(set.reps); item.workouts.add(set.workout_id);
+    return summary;
+  }, {});
+}
+
+function exerciseSessionGroups() {
+  const byKey = new Map();
+  state.sets.forEach((set) => {
+    const contextKey = `${set.comparison_key}|order:${set.exercise_order || 0}`;
+    const sessionKey = `${contextKey}|workout:${set.workout_id}`;
+    if (!byKey.has(contextKey)) byKey.set(contextKey, new Map());
+    const sessions = byKey.get(contextKey);
+    if (!sessions.has(sessionKey)) sessions.set(sessionKey, []);
+    sessions.get(sessionKey).push(set);
+  });
+  return [...byKey.values()].map((sessions) => [...sessions.values()].sort((a, b) => new Date(b[0].timestamp) - new Date(a[0].timestamp)));
+}
+
+function compareExerciseSessions() {
+  return exerciseSessionGroups().filter((sessions) => sessions.length >= 2).map((sessions) => {
+    const latest = sessions[0]; const previous = sessions[1];
+    const metrics = (sets) => ({
+      maxWeight: Math.max(...sets.map((set) => Number(set.weight))),
+      totalReps: sets.reduce((sum, set) => sum + Number(set.reps), 0),
+      volume: sets.reduce((sum, set) => sum + Number(set.weight) * Number(set.reps), 0)
+    });
+    const now = metrics(latest); const before = metrics(previous);
+    let status = "maintained";
+    if ((now.maxWeight > before.maxWeight && now.totalReps >= before.totalReps * 0.85) || (now.maxWeight === before.maxWeight && now.totalReps > before.totalReps) || now.volume > before.volume * 1.05) status = "improved";
+    else if (now.volume < before.volume * 0.85) status = "review";
+    return { status, latest, previous, now, before };
+  });
+}
+
+function renderWeeklyReview() {
+  const start = weekStart(); const end = addDays(start, 7); const previousStart = addDays(start, -7);
+  const currentSets = setsBetween(start, end); const previousSets = setsBetween(previousStart, start);
+  const current = summarizeBodyparts(currentSets); const previous = summarizeBodyparts(previousSets);
+  $("weekRange").textContent = `${start.getMonth() + 1}/${start.getDate()}〜${addDays(end, -1).getMonth() + 1}/${addDays(end, -1).getDate()}`;
+  const comparisons = compareExerciseSessions().filter((item) => new Date(item.latest[0].timestamp) >= start);
+  const improved = comparisons.filter((item) => item.status === "improved");
+  const review = comparisons.filter((item) => item.status === "review");
+  const pain = currentSets.filter((set) => Number(set.pain_score || 0) >= 3);
+  const insights = [];
+  if (!currentSets.length) insights.push({ tone: "neutral", title: "今週はまだ記録がありません", text: "最初のセットを保存すると、ここに週次分析が表示されます。" });
+  else if (!previousSets.length) insights.push({ tone: "neutral", title: "今週を基準週として記録中", text: `${currentSets.length}セットを保存しました。来週から同条件で比較できます。` });
+  if (improved.length) insights.push({ tone: "good", title: `${improved.length}条件で向上`, text: improved.slice(0, 3).map((item) => item.latest[0].exercise_name).join("、") + "で重量・回数・総負荷量のいずれかが改善しました。" });
+  if (review.length) insights.push({ tone: "warn", title: `${review.length}条件を要確認`, text: "前回より総負荷量が15%以上低下しています。種目順、疲労、フォーム、体調を確認しましょう。" });
+  if (pain.length) insights.push({ tone: "danger", title: "痛みの記録があります", text: `${pain.map((set) => set.pain_area || set.bodypart_ui).filter((value, index, array) => array.indexOf(value) === index).join("、")}の重量アップは保留候補です。` });
+  if (previousSets.length && currentSets.length >= previousSets.length * 1.5 && currentSets.length - previousSets.length >= 4) insights.push({ tone: "warn", title: "セット数が大きく増えています", text: `前週${previousSets.length}セットから今週${currentSets.length}セットです。回復状態も確認してください。` });
+  $("weeklyInsights").innerHTML = insights.map((item) => `<article class="insight ${item.tone}"><strong>${item.title}</strong><span>${item.text}</span></article>`).join("");
+  const parts = [...new Set([...Object.keys(current), ...Object.keys(previous)])].sort((a, b) => (current[b]?.sets || 0) - (current[a]?.sets || 0));
+  $("bodypartWeekly").innerHTML = parts.length ? `<div class="weekly-head"><span>部位</span><span>今週</span><span>前週</span><span>頻度</span></div>${parts.map((part) => {
+    const now = current[part]; const before = previous[part]; const delta = (now?.sets || 0) - (before?.sets || 0);
+    return `<div class="weekly-row"><strong>${part}</strong><span>${now?.sets || 0}セット</span><span>${before?.sets || 0}セット</span><span>${now?.workouts.size || 0}回${delta ? `<small class="${delta > 0 ? "up" : "down"}">${delta > 0 ? "+" : ""}${delta}</small>` : ""}</span></div>`;
+  }).join("")}` : "";
+}
+
 function renderHistory() {
   const start = weekStart();
   const weekSets = state.sets.filter((set) => new Date(set.timestamp) >= start);
   const volume = weekSets.reduce((sum, set) => sum + set.weight * set.reps, 0);
   const activeParts = new Set(weekSets.map((set) => set.bodypart_ui)).size;
   $("progressSummary").innerHTML = `<div class="metric"><small>今週のセット</small><strong>${weekSets.length}</strong></div><div class="metric"><small>総負荷量</small><strong>${Math.round(volume).toLocaleString()}kg</strong></div><div class="metric"><small>実施部位</small><strong>${activeParts}</strong></div>`;
+  renderWeeklyReview();
   const groups = [];
   state.sets.forEach((set) => {
     const key = `${set.workout_id}|${set.comparison_key}`;
